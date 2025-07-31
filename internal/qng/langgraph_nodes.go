@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"qng_agent/internal/llm"
-	"qng_agent/internal/contracts"
 	"qng_agent/internal/config"
+	"qng_agent/internal/contracts"
+	"qng_agent/internal/llm"
 	"qng_agent/internal/rpc"
 	"regexp"
 	"strings"
@@ -35,7 +35,7 @@ func (n *TaskDecomposerNode) GetType() string {
 
 func (n *TaskDecomposerNode) Execute(ctx context.Context, input NodeInput) (*NodeOutput, error) {
 	log.Printf("🔄 任务分解节点开始执行")
-	
+
 	userMessage, ok := input.Data["user_message"].(string)
 	if !ok {
 		log.Printf("❌ 输入中缺少user_message")
@@ -118,17 +118,12 @@ func (n *TaskDecomposerNode) Execute(ctx context.Context, input NodeInput) (*Nod
 		tasks := n.parseTasksFromResponse(response, userMessage)
 		log.Printf("📋 解析出 %d 个任务", len(tasks))
 
-		// 决定下一个执行节点
-		nextNodes := n.determineNextNodes(tasks)
-		log.Printf("➡️  下一个节点: %v", nextNodes)
-
 		return &NodeOutput{
 			Data: map[string]any{
 				"tasks":         tasks,
 				"user_message":  userMessage,
 				"decomposed_at": input.Data["timestamp"],
 			},
-			NextNodes: nextNodes,
 			Completed: false,
 		}, nil
 	}
@@ -137,16 +132,12 @@ func (n *TaskDecomposerNode) Execute(ctx context.Context, input NodeInput) (*Nod
 	log.Printf("⚠️  没有LLM客户端，使用简单规则分解")
 	tasks := n.simpleTaskDecomposition(userMessage)
 	log.Printf("📋 简单分解出 %d 个任务", len(tasks))
-	
-	nextNodes := n.determineNextNodes(tasks)
-	log.Printf("➡️  下一个节点: %v", nextNodes)
 
 	return &NodeOutput{
 		Data: map[string]any{
 			"tasks":        tasks,
 			"user_message": userMessage,
 		},
-		NextNodes: nextNodes,
 		Completed: false,
 	}, nil
 }
@@ -154,35 +145,35 @@ func (n *TaskDecomposerNode) Execute(ctx context.Context, input NodeInput) (*Nod
 func (n *TaskDecomposerNode) parseTasksFromResponse(response string, originalUserMessage string) []map[string]any {
 	log.Printf("🔄 解析LLM响应中的任务")
 	log.Printf("📄 响应内容: %s", response)
-	
+
 	// 尝试从JSON响应中解析任务
 	// 首先尝试提取JSON部分
 	jsonStart := strings.Index(response, "{")
 	jsonEnd := strings.LastIndex(response, "}")
-	
+
 	if jsonStart >= 0 && jsonEnd > jsonStart {
 		jsonStr := response[jsonStart : jsonEnd+1]
 		log.Printf("📋 提取的JSON: %s", jsonStr)
-		
+
 		// 尝试使用json.Unmarshal解析
 		var result map[string]any
 		if err := json.Unmarshal([]byte(jsonStr), &result); err == nil {
 			if tasks, ok := result["tasks"].([]any); ok {
 				log.Printf("✅ 成功解析JSON，找到 %d 个任务", len(tasks))
-				
+
 				// 转换为所需格式并验证内容
 				taskList := make([]map[string]any, 0, len(tasks))
 				allTasksValid := true
-				
+
 				for i, task := range tasks {
 					if taskMap, ok := task.(map[string]any); ok {
 						log.Printf("📋 任务[%d]: %+v", i, taskMap)
-						
+
 						// 验证代币是否为支持的类型
 						if taskType, exists := taskMap["type"].(string); exists && taskType == "swap" {
 							fromToken, _ := taskMap["from_token"].(string)
 							toToken, _ := taskMap["to_token"].(string)
-							
+
 							// 检查是否为支持的代币对
 							if !n.isSupportedTokenPair(fromToken, toToken) {
 								log.Printf("⚠️  检测到不支持的代币对: %s -> %s", fromToken, toToken)
@@ -190,11 +181,11 @@ func (n *TaskDecomposerNode) parseTasksFromResponse(response string, originalUse
 								break
 							}
 						}
-						
+
 						taskList = append(taskList, taskMap)
 					}
 				}
-				
+
 				if allTasksValid {
 					log.Printf("✅ 所有任务验证通过")
 					return taskList
@@ -206,7 +197,7 @@ func (n *TaskDecomposerNode) parseTasksFromResponse(response string, originalUse
 			log.Printf("⚠️  JSON解析失败: %v", err)
 		}
 	}
-	
+
 	// 如果JSON解析失败或内容验证失败，使用原始用户输入进行文本解析
 	log.Printf("🔄 使用原始用户输入进行备用解析")
 	log.Printf("📝 原始用户输入: %s", originalUserMessage)
@@ -219,13 +210,13 @@ func (n *TaskDecomposerNode) isSupportedTokenPair(fromToken, toToken string) boo
 		{"MEER", "MTK"},
 		{"MTK", "MEER"},
 	}
-	
+
 	for _, pair := range supportedPairs {
 		if pair[0] == fromToken && pair[1] == toToken {
 			return true
 		}
 	}
-	
+
 	log.Printf("📋 支持的代币对: MEER↔MTK，当前: %s->%s", fromToken, toToken)
 	return false
 }
@@ -234,27 +225,27 @@ func (n *TaskDecomposerNode) isSupportedTokenPair(fromToken, toToken string) boo
 func (n *TaskDecomposerNode) fallbackParseFromText(userMessage string) []map[string]any {
 	log.Printf("🔄 使用文本解析备用方案")
 	log.Printf("📝 分析用户消息: %s", userMessage)
-	
+
 	lowerMessage := strings.ToLower(userMessage)
 	tasks := make([]map[string]any, 0)
-	
+
 	// 检测兑换任务
 	if strings.Contains(lowerMessage, "swap") || strings.Contains(lowerMessage, "兑换") {
 		log.Printf("✅ 检测到兑换任务")
-		
+
 		// 默认值
 		fromToken := "MEER"
 		toToken := "MTK"
 		amount := "10"
-		
+
 		// 智能解析代币和数量
 		// 解析类似 "兑换10MEER的MTK" 或 "兑换10 MEER为MTK" 的模式
 		patterns := []string{
 			`兑换(\d+)meer.*mtk`,    // "兑换10MEER的MTK"
 			`兑换(\d+).*meer.*mtk`,  // "兑换10 MEER为MTK"
-			`swap\s+(\d+)\s+meer`,   // "swap 10 meer"
+			`swap\s+(\d+)\s+meer`, // "swap 10 meer"
 		}
-		
+
 		for _, pattern := range patterns {
 			re := regexp.MustCompile(pattern)
 			if matches := re.FindStringSubmatch(lowerMessage); len(matches) > 1 {
@@ -263,13 +254,13 @@ func (n *TaskDecomposerNode) fallbackParseFromText(userMessage string) []map[str
 				break
 			}
 		}
-		
+
 		// 确认代币方向
 		if strings.Contains(lowerMessage, "meer") && strings.Contains(lowerMessage, "mtk") {
 			// 判断是 MEER->MTK 还是 MTK->MEER
 			meerIndex := strings.Index(lowerMessage, "meer")
 			mtkIndex := strings.Index(lowerMessage, "mtk")
-			
+
 			if meerIndex < mtkIndex && strings.Contains(lowerMessage, "兑换") {
 				// "兑换MEER为MTK" 或 "兑换MEER的MTK"
 				fromToken = "MEER"
@@ -280,7 +271,7 @@ func (n *TaskDecomposerNode) fallbackParseFromText(userMessage string) []map[str
 				toToken = "MEER"
 			}
 		}
-		
+
 		task := map[string]any{
 			"id":               "task_1",
 			"type":             "swap",
@@ -290,18 +281,18 @@ func (n *TaskDecomposerNode) fallbackParseFromText(userMessage string) []map[str
 			"dependency_tx_id": nil,
 			"description":      fmt.Sprintf("兑换%s %s为%s", amount, fromToken, toToken),
 		}
-		
+
 		log.Printf("📋 构建兑换任务: %+v", task)
 		tasks = append(tasks, task)
 	}
-	
+
 	// 检测质押任务
 	if strings.Contains(lowerMessage, "stake") || strings.Contains(lowerMessage, "质押") {
 		log.Printf("✅ 检测到质押任务")
-		
+
 		// 检查是否是连续操作
 		hasSwap := strings.Contains(lowerMessage, "swap") || strings.Contains(lowerMessage, "兑换")
-		
+
 		var stakeTask map[string]any
 		if hasSwap && len(tasks) > 0 {
 			// 连续操作：兑换后质押
@@ -327,11 +318,11 @@ func (n *TaskDecomposerNode) fallbackParseFromText(userMessage string) []map[str
 				"description":      "质押MTK代币",
 			}
 		}
-		
+
 		log.Printf("📋 构建质押任务: %+v", stakeTask)
 		tasks = append(tasks, stakeTask)
 	}
-	
+
 	log.Printf("✅ 文本解析完成，共 %d 个任务", len(tasks))
 	return tasks
 }
@@ -339,7 +330,7 @@ func (n *TaskDecomposerNode) fallbackParseFromText(userMessage string) []map[str
 func (n *TaskDecomposerNode) simpleTaskDecomposition(message string) []map[string]any {
 	log.Printf("🔄 使用简单规则分解任务")
 	log.Printf("📝 消息: %s", message)
-	
+
 	lowerMsg := strings.ToLower(message)
 	tasks := make([]map[string]any, 0)
 
@@ -349,12 +340,12 @@ func (n *TaskDecomposerNode) simpleTaskDecomposition(message string) []map[strin
 
 	if strings.Contains(lowerMsg, "兑换") || strings.Contains(lowerMsg, "swap") {
 		log.Printf("✅ 检测到兑换/swap任务")
-		
+
 		// 解析代币信息
 		fromToken := "MEER"
-		toToken := "MTK" 
+		toToken := "MTK"
 		amount := "10"
-		
+
 		// 简单的代币解析
 		if strings.Contains(lowerMsg, "meer") {
 			fromToken = "MEER"
@@ -362,7 +353,7 @@ func (n *TaskDecomposerNode) simpleTaskDecomposition(message string) []map[strin
 		if strings.Contains(lowerMsg, "mtk") {
 			toToken = "MTK"
 		}
-		
+
 		// 解析数量
 		if strings.Contains(lowerMsg, "10") {
 			amount = "10"
@@ -371,47 +362,47 @@ func (n *TaskDecomposerNode) simpleTaskDecomposition(message string) []map[strin
 		}
 
 		swapTask := map[string]any{
-			"id":                "task_1",
-			"type":              "swap",
-			"from_token":        fromToken,
-			"to_token":          toToken,
-			"amount":            amount,
-			"dependency_tx_id":  nil,
-			"description":       fmt.Sprintf("兑换%s %s为%s", amount, fromToken, toToken),
+			"id":               "task_1",
+			"type":             "swap",
+			"from_token":       fromToken,
+			"to_token":         toToken,
+			"amount":           amount,
+			"dependency_tx_id": nil,
+			"description":      fmt.Sprintf("兑换%s %s为%s", amount, fromToken, toToken),
 		}
 		tasks = append(tasks, swapTask)
 	}
 
 	if strings.Contains(lowerMsg, "质押") || strings.Contains(lowerMsg, "stake") {
 		log.Printf("✅ 检测到质押/stake任务")
-		
+
 		var stakeTask map[string]any
-		
+
 		if hasSwapAndStake {
 			// 如果是连续操作，质押任务依赖兑换任务
 			log.Printf("🔗 检测到连续操作：兑换后质押")
 			stakeTask = map[string]any{
-				"id":                "task_2",
-				"type":              "stake",
-				"token":             "MTK", // 使用兑换得到的代币
-				"amount":            "all_from_previous", // 使用前一个任务的全部输出
-				"pool":              "compound",
-				"dependency_tx_id":  "task_1", // 依赖兑换任务
-				"description":       "将兑换得到的MTK进行质押",
+				"id":               "task_2",
+				"type":             "stake",
+				"token":            "MTK",               // 使用兑换得到的代币
+				"amount":           "all_from_previous", // 使用前一个任务的全部输出
+				"pool":             "compound",
+				"dependency_tx_id": "task_1", // 依赖兑换任务
+				"description":      "将兑换得到的MTK进行质押",
 			}
 		} else {
 			// 独立的质押任务
 			stakeTask = map[string]any{
-				"id":                "task_1",
-				"type":              "stake",
-				"token":             "MTK",
-				"amount":            "100", // 默认数量
-				"pool":              "compound",
-				"dependency_tx_id":  nil,
-				"description":       "质押MTK代币",
+				"id":               "task_1",
+				"type":             "stake",
+				"token":            "MTK",
+				"amount":           "100", // 默认数量
+				"pool":             "compound",
+				"dependency_tx_id": nil,
+				"description":      "质押MTK代币",
 			}
 		}
-		
+
 		tasks = append(tasks, stakeTask)
 	}
 
@@ -425,16 +416,16 @@ func (n *TaskDecomposerNode) simpleTaskDecomposition(message string) []map[strin
 func (n *TaskDecomposerNode) determineNextNodes(tasks []map[string]any) []string {
 	log.Printf("🔄 确定下一个执行节点")
 	log.Printf("📋 任务数量: %d", len(tasks))
-	
+
 	if len(tasks) == 0 {
 		log.Printf("➡️  没有任务，选择result_aggregator节点")
 		return []string{"result_aggregator"}
 	}
-	
+
 	// 找到没有依赖的第一个任务（即可以立即执行的任务）
 	for i, task := range tasks {
 		log.Printf("📋 任务[%d]: %+v", i, task)
-		
+
 		dependencyTxID := task["dependency_tx_id"]
 		if dependencyTxID == nil {
 			// 没有依赖，可以立即执行
@@ -453,7 +444,7 @@ func (n *TaskDecomposerNode) determineNextNodes(tasks []map[string]any) []string
 			log.Printf("🔗 任务[%d]依赖于: %v", i, dependencyTxID)
 		}
 	}
-	
+
 	// 如果所有任务都有依赖，说明可能有问题，先执行第一个任务
 	if len(tasks) > 0 {
 		firstTask := tasks[0]
@@ -467,13 +458,13 @@ func (n *TaskDecomposerNode) determineNextNodes(tasks []map[string]any) []string
 			}
 		}
 	}
-	
+
 	log.Printf("➡️  默认选择result_aggregator节点")
 	return []string{"result_aggregator"}
 }
 
 // SwapExecutorNode 交易执行节点
-type SwapExecutorNode struct{
+type SwapExecutorNode struct {
 	contractManager *contracts.ContractManager
 }
 
@@ -493,7 +484,7 @@ func (n *SwapExecutorNode) GetType() string {
 
 func (n *SwapExecutorNode) Execute(ctx context.Context, input NodeInput) (*NodeOutput, error) {
 	log.Printf("🔄 交易执行节点开始执行")
-	
+
 	// 查找当前需要执行的swap任务
 	currentTask, err := n.findCurrentSwapTask(input.Data)
 	if err != nil {
@@ -529,19 +520,19 @@ func (n *SwapExecutorNode) Execute(ctx context.Context, input NodeInput) (*NodeO
 	// 需要用户签名授权交易
 	log.Printf("✍️  需要用户签名授权交易")
 	authRequest := map[string]any{
-		"type":        "transaction_signature",
-		"action":      "swap",
-		"from_token":  swapRequest.FromToken,
-		"to_token":    swapRequest.ToToken,
-		"amount":      swapRequest.Amount,
-		"gas_fee":     "0.001 ETH",
-		"slippage":    "0.5%",
+		"type":       "transaction_signature",
+		"action":     "swap",
+		"from_token": swapRequest.FromToken,
+		"to_token":   swapRequest.ToToken,
+		"amount":     swapRequest.Amount,
+		"gas_fee":    "0.001 ETH",
+		"slippage":   "0.5%",
 		// 使用合约管理器生成的真实交易数据
-		"to_address":  txData.To,
-		"value":       txData.Value,
-		"data":        txData.Data,
-		"gas_limit":   txData.GasLimit,
-		"gas_price":   txData.GasPrice,
+		"to_address": txData.To,
+		"value":      txData.Value,
+		"data":       txData.Data,
+		"gas_limit":  txData.GasLimit,
+		"gas_price":  txData.GasPrice,
 	}
 
 	log.Printf("📋 授权请求: %+v", authRequest)
@@ -572,7 +563,7 @@ func (n *SwapExecutorNode) findCurrentSwapTask(data map[string]any) (map[string]
 	for _, task := range tasks {
 		if taskType, ok := task["type"].(string); ok && taskType == "swap" {
 			taskID, _ := task["id"].(string)
-			
+
 			// 检查任务是否已完成
 			var alreadyCompleted bool
 			for _, completed := range completedTasks {
@@ -642,7 +633,7 @@ func (n *SwapExecutorNode) buildSwapRequestFromTask(task map[string]any, data ma
 }
 
 // StakeExecutorNode 质押执行节点
-type StakeExecutorNode struct{
+type StakeExecutorNode struct {
 	contractManager *contracts.ContractManager
 }
 
@@ -662,7 +653,7 @@ func (n *StakeExecutorNode) GetType() string {
 
 func (n *StakeExecutorNode) Execute(ctx context.Context, input NodeInput) (*NodeOutput, error) {
 	log.Printf("🔄 质押执行节点开始执行")
-	
+
 	// 查找当前需要执行的stake任务
 	currentTask, err := n.findCurrentStakeTask(input.Data)
 	if err != nil {
@@ -689,11 +680,11 @@ func (n *StakeExecutorNode) Execute(ctx context.Context, input NodeInput) (*Node
 	// 检查是否已经执行了授权步骤
 	taskID, _ := currentTask["id"].(string)
 	approveKey := taskID + "_approve_completed"
-	
+
 	if _, approveCompleted := input.Data[approveKey]; !approveCompleted {
 		// 还没有授权，先构建授权交易
 		log.Printf("🔐 需要先授权MTK代币给质押合约")
-		
+
 		approveData, err := n.contractManager.BuildApproveTransaction(stakeRequest)
 		if err != nil {
 			log.Printf("❌ 构建授权交易失败: %v", err)
@@ -716,11 +707,11 @@ func (n *StakeExecutorNode) Execute(ctx context.Context, input NodeInput) (*Node
 			"description": fmt.Sprintf("授权质押合约使用您的 %s %s 代币，这是质押操作的必要步骤", stakeRequest.Amount, stakeRequest.Token),
 			"step_info":   "步骤 1/2: 授权代币使用权限",
 			// 使用合约管理器生成的真实交易数据
-			"to_address":  approveData.To,
-			"value":       approveData.Value,
-			"data":        approveData.Data,
-			"gas_limit":   approveData.GasLimit,
-			"gas_price":   approveData.GasPrice,
+			"to_address": approveData.To,
+			"value":      approveData.Value,
+			"data":       approveData.Data,
+			"gas_limit":  approveData.GasLimit,
+			"gas_price":  approveData.GasPrice,
 		}
 
 		log.Printf("📋 授权请求: %+v", authRequest)
@@ -736,7 +727,7 @@ func (n *StakeExecutorNode) Execute(ctx context.Context, input NodeInput) (*Node
 
 	// 授权已完成，现在构建质押交易
 	log.Printf("✅ 授权已完成，构建质押交易")
-	
+
 	txData, err := n.contractManager.BuildStakeTransaction(stakeRequest)
 	if err != nil {
 		log.Printf("❌ 构建质押交易数据失败: %v", err)
@@ -759,11 +750,11 @@ func (n *StakeExecutorNode) Execute(ctx context.Context, input NodeInput) (*Node
 		"description": fmt.Sprintf("将 %s %s 代币质押到合约中，预计年化收益率 8.5%%", stakeRequest.Amount, stakeRequest.Token),
 		"step_info":   "步骤 2/2: 执行质押操作",
 		// 使用合约管理器生成的真实交易数据
-		"to_address":  txData.To,
-		"value":       txData.Value,
-		"data":        txData.Data,
-		"gas_limit":   txData.GasLimit,
-		"gas_price":   txData.GasPrice,
+		"to_address": txData.To,
+		"value":      txData.Value,
+		"data":       txData.Data,
+		"gas_limit":  txData.GasLimit,
+		"gas_price":  txData.GasPrice,
 	}
 
 	log.Printf("📋 授权请求: %+v", authRequest)
@@ -794,7 +785,7 @@ func (n *StakeExecutorNode) findCurrentStakeTask(data map[string]any) (map[strin
 	for _, task := range tasks {
 		if taskType, ok := task["type"].(string); ok && taskType == "stake" {
 			taskID, _ := task["id"].(string)
-			
+
 			// 检查任务是否已完成
 			var alreadyCompleted bool
 			for _, completed := range completedTasks {
@@ -860,7 +851,7 @@ func (n *StakeExecutorNode) buildStakeRequestFromTask(task map[string]any, data 
 }
 
 // SignatureValidatorNode 签名验证节点
-type SignatureValidatorNode struct{
+type SignatureValidatorNode struct {
 	rpcClient *rpc.Client
 	txConfig  config.TransactionConfig
 }
@@ -882,7 +873,7 @@ func (n *SignatureValidatorNode) GetType() string {
 
 func (n *SignatureValidatorNode) Execute(ctx context.Context, input NodeInput) (*NodeOutput, error) {
 	log.Printf("🔄 签名验证节点开始执行")
-	
+
 	signature, ok := input.Data["signature"].(string)
 	if !ok || signature == "" {
 		log.Printf("❌ 输入中缺少签名")
@@ -917,12 +908,8 @@ func (n *SignatureValidatorNode) Execute(ctx context.Context, input NodeInput) (
 		return nil, fmt.Errorf("transaction confirmation failed: %w", err)
 	}
 
-	// 检查是否有依赖任务需要执行
-	nextNodes := n.checkDependentTasks(input.Data, transactionHash)
-
 	return &NodeOutput{
 		Data:      input.Data,
-		NextNodes: nextNodes,
 		Completed: false,
 	}, nil
 }
@@ -930,49 +917,49 @@ func (n *SignatureValidatorNode) Execute(ctx context.Context, input NodeInput) (
 // waitForTransactionConfirmation 等待交易确认
 func (n *SignatureValidatorNode) waitForTransactionConfirmation(ctx context.Context, txHash string) error {
 	log.Printf("🔍 开始监控交易确认: %s", txHash)
-	
+
 	// 如果没有RPC客户端，使用模拟确认
 	if n.rpcClient == nil {
 		log.Printf("⚠️  未配置RPC客户端，使用模拟确认")
 		confirmationTime := 5
 		log.Printf("⏰ 模拟等待交易确认，预计 %d 秒...", confirmationTime)
-		
+
 		for i := 1; i <= confirmationTime; i++ {
 			time.Sleep(1 * time.Second)
 			log.Printf("⏳ 模拟确认进度: %d/%d 秒", i, confirmationTime)
 		}
-		
+
 		log.Printf("✅ 模拟交易确认完成: %s", txHash)
 		return nil
 	}
-	
+
 	// 使用真实的RPC客户端等待交易确认
 	log.Printf("🌐 使用RPC轮询等待交易确认...")
-	
+
 	// 创建带超时的上下文
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, time.Duration(n.txConfig.ConfirmationTimeout)*time.Second)
 	defer cancel()
-	
+
 	pollingInterval := time.Duration(n.txConfig.PollingInterval) * time.Second
 	requiredConfirmations := n.txConfig.RequiredConfirmations
-	
+
 	receipt, err := n.rpcClient.WaitForTransactionConfirmation(
-		ctxWithTimeout, 
-		txHash, 
-		requiredConfirmations, 
+		ctxWithTimeout,
+		txHash,
+		requiredConfirmations,
 		pollingInterval,
 	)
-	
+
 	if err != nil {
 		log.Printf("❌ 交易确认失败: %v", err)
 		return fmt.Errorf("交易确认失败: %w", err)
 	}
-	
+
 	if !receipt.Success {
 		log.Printf("❌ 交易执行失败: %s", txHash)
 		return fmt.Errorf("交易执行失败")
 	}
-	
+
 	log.Printf("✅ 交易已确认并完成: %s (区块: %s)", txHash, receipt.BlockNumber)
 	log.Printf("🎯 现在可以安全执行依赖任务")
 	return nil
@@ -981,7 +968,7 @@ func (n *SignatureValidatorNode) waitForTransactionConfirmation(ctx context.Cont
 // checkDependentTasks 检查是否有依赖当前任务的下一个任务
 func (n *SignatureValidatorNode) checkDependentTasks(data map[string]any, completedTxHash string) []string {
 	log.Printf("🔗 检查依赖任务")
-	
+
 	// 检查是否是授权步骤完成
 	for _, task := range data["tasks"].([]map[string]any) {
 		if taskID, exists := task["id"].(string); exists {
@@ -998,7 +985,7 @@ func (n *SignatureValidatorNode) checkDependentTasks(data map[string]any, comple
 			}
 		}
 	}
-	
+
 	// 获取任务列表
 	tasks, ok := data["tasks"].([]map[string]any)
 	if !ok {
@@ -1010,7 +997,7 @@ func (n *SignatureValidatorNode) checkDependentTasks(data map[string]any, comple
 	if data["completed_tasks"] == nil {
 		data["completed_tasks"] = make([]string, 0)
 	}
-	
+
 	completedTasks, ok := data["completed_tasks"].([]string)
 	if !ok {
 		completedTasks = make([]string, 0)
@@ -1054,7 +1041,7 @@ func (n *SignatureValidatorNode) checkDependentTasks(data map[string]any, comple
 			if dependencyTxID != nil && dependencyTxID == completedTaskID {
 				// 找到依赖任务
 				log.Printf("🔗 找到依赖任务: %s 依赖于 %s", taskID, completedTaskID)
-				
+
 				// 检查任务类型
 				if taskType, typeExists := task["type"].(string); typeExists {
 					switch taskType {
@@ -1095,11 +1082,11 @@ func (n *ResultAggregatorNode) Execute(ctx context.Context, input NodeInput) (*N
 
 	// 聚合所有执行结果
 	result := map[string]any{
-		"status":      "completed",
-		"timestamp":   time.Now(),
-		"workflow_id": input.Context["workflow_id"],
-		"session_id":  input.Context["session_id"],
-		"tasks":       input.Data["tasks"],
+		"status":       "completed",
+		"timestamp":    time.Now(),
+		"workflow_id":  input.Context["workflow_id"],
+		"session_id":   input.Context["session_id"],
+		"tasks":        input.Data["tasks"],
 		"user_message": input.Data["user_message"],
 	}
 
@@ -1123,4 +1110,4 @@ func (n *ResultAggregatorNode) Execute(ctx context.Context, input NodeInput) (*N
 		NextNodes: []string{}, // 终止节点
 		Completed: true,
 	}, nil
-} 
+}
