@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"qng_agent/internal/config"
@@ -12,7 +14,7 @@ import (
 )
 
 func main() {
-	log.Println("=== QNG MCP 服务启动 ===")
+	log.Println("=== QNG MCP 服务启动 (SSE模式) ===")
 
 	// 加载配置
 	cfg := config.LoadConfig("config/config.yaml")
@@ -25,19 +27,21 @@ func main() {
 
 	// 注册MCP服务
 	mcpService := &service.ServiceInfo{
-		Name:    "mcp",
-		Address: "localhost",
-		Port:    9091,
-		Status:  "running",
+		Name:     "mcp",
+		Address:  "localhost",
+		Port:     9091,
+		Status:   "running",
 		LastSeen: time.Now(),
 		Endpoints: []string{
 			"/api/mcp/call",
 			"/api/mcp/qng/workflow",
 			"/api/mcp/capabilities",
+			"/api/mcp/events", // SSE端点
 		},
 		Metadata: map[string]string{
-			"type":    "mcp_service",
-			"version": "1.0.0",
+			"type":     "mcp_service",
+			"version":  "1.0.0",
+			"protocol": "sse",
 		},
 	}
 
@@ -58,9 +62,9 @@ func main() {
 	defer mcpServer.Stop()
 
 	log.Println("📋 服务架构说明:")
-	log.Println("  - MCP服务管理所有子服务")
-	log.Println("  - QNG服务内部包含chain功能")
-	log.Println("  - 不需要独立等待chain服务")
+	log.Println("  - MCP服务以SSE模式运行")
+	log.Println("  - 支持实时事件推送")
+	log.Println("  - 兼容标准MCP协议")
 
 	// 创建HTTP服务器
 	gin.SetMode(gin.ReleaseMode)
@@ -71,12 +75,12 @@ func main() {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
 		}
-		
+
 		c.Next()
 	})
 
@@ -85,6 +89,7 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{
 			"status":    "healthy",
 			"service":   "mcp",
+			"protocol":  "sse",
 			"timestamp": time.Now().Unix(),
 		})
 	})
@@ -187,11 +192,141 @@ func main() {
 			capabilities := mcpServer.GetCapabilities()
 			c.JSON(http.StatusOK, gin.H{"capabilities": capabilities})
 		})
+
+		// SSE事件流端点
+		api.GET("/events", func(c *gin.Context) {
+			// 设置SSE头部
+			c.Header("Content-Type", "text/event-stream")
+			c.Header("Cache-Control", "no-cache")
+			c.Header("Connection", "keep-alive")
+			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("Access-Control-Allow-Headers", "Cache-Control")
+
+			// 创建事件通道
+			eventChan := make(chan string)
+			defer close(eventChan)
+
+			// 监听客户端断开连接
+			notify := c.Writer.CloseNotify()
+			go func() {
+				<-notify
+				log.Println("SSE客户端断开连接")
+			}()
+
+			// 发送初始连接事件
+			initialEvent := map[string]interface{}{
+				"type":    "connected",
+				"message": "SSE连接已建立",
+				"time":    time.Now().Unix(),
+			}
+			initialData, _ := json.Marshal(initialEvent)
+			fmt.Fprintf(c.Writer, "data: %s\n\n", initialData)
+			c.Writer.Flush()
+
+			// 持续发送事件
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-c.Request.Context().Done():
+					return
+				case <-ticker.C:
+					// 发送心跳事件
+					heartbeatEvent := map[string]interface{}{
+						"type": "heartbeat",
+						"time": time.Now().Unix(),
+					}
+					heartbeatData, _ := json.Marshal(heartbeatEvent)
+					fmt.Fprintf(c.Writer, "data: %s\n\n", heartbeatData)
+					c.Writer.Flush()
+				case event := <-eventChan:
+					// 发送自定义事件
+					fmt.Fprintf(c.Writer, "data: %s\n\n", event)
+					c.Writer.Flush()
+				}
+			}
+		})
+
+		// 工作流状态SSE端点
+		api.GET("/workflow/:id/events", func(c *gin.Context) {
+			workflowID := c.Param("id")
+
+			// 设置SSE头部
+			c.Header("Content-Type", "text/event-stream")
+			c.Header("Cache-Control", "no-cache")
+			c.Header("Connection", "keep-alive")
+			c.Header("Access-Control-Allow-Origin", "*")
+
+			// 监听客户端断开连接
+			notify := c.Writer.CloseNotify()
+			go func() {
+				<-notify
+				log.Printf("工作流 %s 的SSE客户端断开连接", workflowID)
+			}()
+
+			// 定期检查工作流状态
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-c.Request.Context().Done():
+					return
+				case <-ticker.C:
+					ctx := c.Request.Context()
+					result, err := mcpServer.Call(ctx, "qng", "get_session_status", map[string]any{
+						"session_id": workflowID,
+					})
+					if err != nil {
+						errorEvent := map[string]interface{}{
+							"type":  "error",
+							"error": err.Error(),
+							"time":  time.Now().Unix(),
+						}
+						errorData, _ := json.Marshal(errorEvent)
+						fmt.Fprintf(c.Writer, "data: %s\n\n", errorData)
+						c.Writer.Flush()
+						continue
+					}
+
+					statusEvent := map[string]interface{}{
+						"type":        "status_update",
+						"workflow_id": workflowID,
+						"status":      result,
+						"time":        time.Now().Unix(),
+					}
+					statusData, _ := json.Marshal(statusEvent)
+					fmt.Fprintf(c.Writer, "data: %s\n\n", statusData)
+					c.Writer.Flush()
+
+					// 如果工作流完成，停止发送事件
+					if statusMap, ok := result.(map[string]interface{}); ok {
+						if status, exists := statusMap["status"]; exists {
+							if statusStr, ok := status.(string); ok {
+								if statusStr == "completed" || statusStr == "failed" {
+									completionEvent := map[string]interface{}{
+										"type":        "workflow_completed",
+										"workflow_id": workflowID,
+										"status":      statusStr,
+										"time":        time.Now().Unix(),
+									}
+									completionData, _ := json.Marshal(completionEvent)
+									fmt.Fprintf(c.Writer, "data: %s\n\n", completionData)
+									c.Writer.Flush()
+									return
+								}
+							}
+						}
+					}
+				}
+			}
+		})
 	}
 
 	// 启动服务器
 	addr := ":9091"
-	log.Printf("MCP服务启动在 %s", addr)
+	log.Printf("MCP服务启动在 %s (SSE模式)", addr)
 	if err := router.Run(addr); err != nil {
 		log.Fatal("Failed to start MCP server:", err)
 	}

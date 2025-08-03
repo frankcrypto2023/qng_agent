@@ -5,12 +5,21 @@ import (
 	"fmt"
 	"github.com/Qitmeer/qng/graph"
 	"log"
-	"qng_agent/internal/config"
 	"qng_agent/internal/contracts"
 	"qng_agent/internal/llm"
 	"qng_agent/internal/rpc"
 	"time"
 )
+
+// getString 从map中安全获取字符串值
+func getString(m map[string]any, key string) string {
+	if val, ok := m[key]; ok {
+		if str, ok := val.(string); ok {
+			return str
+		}
+	}
+	return ""
+}
 
 // LangGraph 节点系统
 type LangGraph struct {
@@ -18,7 +27,7 @@ type LangGraph struct {
 	llm             llm.Client
 	contractManager *contracts.ContractManager
 	rpcClient       *rpc.Client
-	txConfig        config.TransactionConfig
+	txConfig        TransactionConfig
 
 	g *graph.Graph
 	r *graph.Runnable
@@ -47,7 +56,7 @@ type NodeOutput struct {
 }
 
 // NewLangGraph 创建LangGraph实例
-func NewLangGraph(llmClient llm.Client, contractManager *contracts.ContractManager, rpcClient *rpc.Client, txConfig config.TransactionConfig) *LangGraph {
+func NewLangGraph(llmClient llm.Client, contractManager *contracts.ContractManager, rpcClient *rpc.Client, txConfig TransactionConfig) *LangGraph {
 	lg := &LangGraph{
 		nodes:           make(map[string]Node),
 		llm:             llmClient,
@@ -68,7 +77,7 @@ func NewLangGraph(llmClient llm.Client, contractManager *contracts.ContractManag
 // registerNodes 注册所有节点
 func (lg *LangGraph) registerNodes() {
 	nodes := []Node{
-		NewTaskDecomposerNode(lg.llm),                        // 任务分解节点
+		NewTaskDecomposerNode(lg.llm, lg.contractManager),    // 任务分解节点
 		NewSwapExecutorNode(lg.contractManager),              // 交易执行节点
 		NewStakeExecutorNode(lg.contractManager),             // 质押执行节点
 		NewSignatureValidatorNode(lg.rpcClient, lg.txConfig), // 签名验证节点
@@ -119,9 +128,33 @@ func (lg *LangGraph) buildGraph() {
 			log.Printf("✍️  需要用户签名授权")
 			log.Printf("📋 授权请求: %+v", output.AuthRequest)
 
+			// 将AuthRequest转换为SignatureRequest
+			var signatureRequest *SignatureRequest
+			if authReq, ok := output.AuthRequest.(*SignatureRequest); ok {
+				signatureRequest = authReq
+			} else {
+				log.Printf("⚠️  AuthRequest类型不正确，尝试转换")
+				// 如果类型不正确，尝试从map转换
+				if authMap, ok := output.AuthRequest.(map[string]any); ok {
+					signatureRequest = &SignatureRequest{
+						Action:    getString(authMap, "action"),
+						FromToken: getString(authMap, "from_token"),
+						ToToken:   getString(authMap, "to_token"),
+						Amount:    getString(authMap, "amount"),
+						ToAddress: getString(authMap, "to_address"),
+						Value:     getString(authMap, "value"),
+						Data:      getString(authMap, "data"),
+						GasLimit:  getString(authMap, "gas_limit"),
+						GasPrice:  getString(authMap, "gas_price"),
+						GasFee:    getString(authMap, "gas_fee"),
+						Slippage:  getString(authMap, "slippage"),
+					}
+				}
+			}
+
 			state["result"] = &ProcessResult{
 				NeedSignature:    true,
-				SignatureRequest: output.AuthRequest,
+				SignatureRequest: signatureRequest,
 				WorkflowContext: map[string]any{
 					"current_node": name,
 					"node_output":  output,
@@ -193,11 +226,34 @@ func (lg *LangGraph) ExecuteWorkflow(ctx context.Context, message string) (*Proc
 		},
 	}
 
+	// 确保工作流ID被正确传递到数据中
+	if workflowID := ctx.Value("workflow_id"); workflowID != nil {
+		input.Data["workflow_id"] = workflowID
+	}
+	if sessionID := ctx.Value("session_id"); sessionID != nil {
+		input.Data["session_id"] = sessionID
+	}
+
 	state, err := lg.r.Invoke(ctx, map[string]interface{}{"input": input})
 	if err != nil {
 		return nil, err
 	}
-	return state["result"].(*ProcessResult), nil
+
+	// 安全地处理结果
+	if result, exists := state["result"]; exists && result != nil {
+		if processResult, ok := result.(*ProcessResult); ok {
+			return processResult, nil
+		}
+	}
+
+	// 如果没有结果或结果类型不正确，返回默认的ProcessResult
+	log.Printf("⚠️  状态中没有有效的ProcessResult，返回默认结果")
+	return &ProcessResult{
+		FinalResult: map[string]any{
+			"message": "工作流执行完成",
+			"status":  "completed",
+		},
+	}, nil
 }
 
 // ContinueWithSignature 使用签名继续工作流
@@ -253,8 +309,19 @@ func (lg *LangGraph) ContinueWithSignature(ctx context.Context, workflowContext 
 			return nil, err
 		}
 		log.Printf("✅ 继续执行成功")
-		// 返回完整的 ProcessResult，而不是只返回 FinalResult
-		return state["result"].(*ProcessResult), nil
+
+		// 安全地处理结果
+		if result, exists := state["result"]; exists && result != nil {
+			if processResult, ok := result.(*ProcessResult); ok {
+				return processResult, nil
+			}
+		}
+
+		// 如果没有结果或结果类型不正确，返回基于当前数据的ProcessResult
+		log.Printf("⚠️  状态中没有有效的ProcessResult，返回基于当前数据的结果")
+		return &ProcessResult{
+			FinalResult: nodeOutput.Data,
+		}, nil
 	}
 
 	log.Printf("✅ 没有下一个节点，返回当前数据")

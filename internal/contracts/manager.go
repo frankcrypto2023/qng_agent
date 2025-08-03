@@ -287,13 +287,15 @@ func (cm *ContractManager) BuildSwapTransaction(req *SwapRequest) (*TransactionD
 	
 	if swapPair.Method == "buyToken" {
 		// MEER -> MTK：需要发送 ETH
+		// 用户请求的是 MEER 数量，需要转换为 wei
 		weiAmount := new(big.Int)
 		weiAmount, _ = weiAmount.SetString(fmt.Sprintf("%.0f", amount*1e18), 10)
 		txData.Value = "0x" + weiAmount.Text(16)
 		txData.Data = "0xa4821719" // buyToken() 函数签名 (ethers.js计算)
 		
 		log.Printf("📋 MEER -> MTK 交易")
-		log.Printf("📋 发送金额: %s MEER", req.Amount)
+		log.Printf("📋 用户请求: %s MEER", req.Amount)
+		log.Printf("📋 发送金额: %s wei (%.0f MEER)", weiAmount.Text(10), amount)
 		log.Printf("📋 预期获得: %.0f MTK", amount*swapPair.Rate)
 		
 	} else if swapPair.Method == "sellToken" {

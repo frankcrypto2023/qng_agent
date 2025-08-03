@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"qng_agent/internal/config"
 	"qng_agent/internal/qng"
 	"qng_agent/internal/service"
+	"sync"
 	"syscall"
 	"time"
 
@@ -48,9 +50,76 @@ func main() {
 		log.Fatal("Failed to register Chain service:", err)
 	}
 
+	// 检查QNG服务是否启用
+	if qngServerConfig, exists := cfg.MCP.Servers["qng"]; exists && qngServerConfig.Enabled {
+		log.Printf("✅ QNG服务已启用")
+	} else {
+		log.Fatal("QNG服务未在配置中启用")
+	}
+
+	// 创建Chain配置，使用配置文件中的LLM设置
+	chainConfig := qng.ChainConfig{
+		Enabled: true,
+		Host:    "localhost",
+		Port:    9091,
+		Timeout: 30,
+		Chain: qng.ChainSubConfig{
+			Enabled: true,
+			Network: "mainnet",
+			RPCURL:  "http://47.242.255.132:1234/",
+			Transaction: qng.TransactionConfig{
+				ConfirmationTimeout:   60,
+				PollingInterval:       2,
+				RequiredConfirmations: 1,
+			},
+			LangGraph: qng.LangGraphConfig{
+				Enabled: true,
+				Nodes: []string{
+					"task_decomposer",
+					"swap_executor",
+					"stake_executor",
+					"signature_validator",
+					"result_aggregator",
+				},
+			},
+			LLM: qng.LLMConfig{
+				Provider: cfg.LLM.Provider,
+				OpenAI: qng.OpenAIConfig{
+					APIKey:    cfg.LLM.OpenAI.APIKey,
+					Model:     cfg.LLM.OpenAI.Model,
+					BaseURL:   cfg.LLM.OpenAI.BaseURL,
+					Timeout:   cfg.LLM.OpenAI.Timeout,
+					MaxTokens: cfg.LLM.OpenAI.MaxTokens,
+				},
+				Gemini: qng.GeminiConfig{
+					APIKey:  cfg.LLM.Gemini.APIKey,
+					Model:   cfg.LLM.Gemini.Model,
+					Timeout: cfg.LLM.Gemini.Timeout,
+				},
+				Anthropic: qng.AnthropicConfig{
+					APIKey:  cfg.LLM.Anthropic.APIKey,
+					Model:   cfg.LLM.Anthropic.Model,
+					Timeout: cfg.LLM.Anthropic.Timeout,
+				},
+				ModelScope: qng.ModelScopeConfig{
+					APIKey:    cfg.LLM.ModelScope.APIKey,
+					Model:     cfg.LLM.ModelScope.Model,
+					BaseURL:   cfg.LLM.ModelScope.BaseURL,
+					Timeout:   cfg.LLM.ModelScope.Timeout,
+					MaxTokens: cfg.LLM.ModelScope.MaxTokens,
+				},
+			},
+		},
+	}
+
 	// 初始化QNG Chain
-	chain := qng.NewChain(cfg.MCP.QNG)
-	log.Printf("🔗 初始化QNG链，RPC: %s", cfg.MCP.QNG.Chain.RPCURL)
+	chain := qng.NewChain(chainConfig)
+	log.Printf("🔗 初始化QNG链，RPC: %s", chainConfig.Chain.RPCURL)
+	log.Printf("🤖 使用LLM提供商: %s", chainConfig.Chain.LLM.Provider)
+
+	// 工作流会话存储
+	workflowSessions := make(map[string]*qng.ProcessResult)
+	var sessionsMu sync.RWMutex
 
 	// 启动Chain服务
 	if err := chain.Start(); err != nil {
@@ -92,15 +161,32 @@ func main() {
 				return
 			}
 
-			c.JSON(http.StatusOK, gin.H{"result": result})
+			// 生成工作流ID
+			workflowID := fmt.Sprintf("workflow_%d", time.Now().UnixNano())
+
+			// 保存工作流结果
+			sessionsMu.Lock()
+			workflowSessions[workflowID] = result
+			sessionsMu.Unlock()
+
+			// 返回包含工作流ID的响应
+			response := gin.H{
+				"workflow_id": workflowID,
+				"session_id":  workflowID, // 为兼容性添加
+				"status":      "pending",
+				"message":     "工作流已提交，正在处理中...",
+				"result":      result,
+			}
+
+			c.JSON(http.StatusOK, response)
 		})
 
 		// 获取链状态
 		api.GET("/status", func(c *gin.Context) {
 			status := map[string]interface{}{
 				"running":       true,
-				"chain_rpc":     cfg.MCP.QNG.Chain.RPCURL,
-				"graph_nodes":   len(cfg.MCP.QNG.Chain.LangGraph.Nodes),
+				"chain_rpc":     chainConfig.Chain.RPCURL,
+				"graph_nodes":   len(chainConfig.Chain.LangGraph.Nodes),
 				"poll_interval": 5000, // 默认5秒
 				"timestamp":     time.Now().Unix(),
 			}
@@ -141,11 +227,72 @@ func main() {
 			c.JSON(http.StatusOK, gin.H{"nodes": nodes})
 		})
 
+		// 获取工作流状态
+		api.POST("/status", func(c *gin.Context) {
+			var req struct {
+				SessionID string `json:"session_id"`
+			}
+
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+
+			// 从存储中获取工作流状态
+			sessionsMu.RLock()
+			result, exists := workflowSessions[req.SessionID]
+			sessionsMu.RUnlock()
+			if !exists {
+				c.JSON(http.StatusNotFound, gin.H{"error": "workflow not found"})
+				return
+			}
+
+			// 根据工作流状态确定响应
+			var status gin.H
+			if result.NeedSignature {
+				status = gin.H{
+					"session_id":     req.SessionID,
+					"workflow_id":    req.SessionID,
+					"status":         "waiting_signature",
+					"message":        "等待用户签名授权",
+					"need_signature": result.NeedSignature,
+				}
+			} else {
+				// 工作流已完成
+				status = gin.H{
+					"session_id":  req.SessionID,
+					"workflow_id": req.SessionID,
+					"status":      "completed",
+					"message":     "工作流执行完成",
+					"result":      result.FinalResult,
+				}
+			}
+
+			// 如果需要签名，添加签名请求数据
+			if result.NeedSignature && result.SignatureRequest != nil {
+				status["signature_request"] = gin.H{
+					"action":     result.SignatureRequest.Action,
+					"from_token": result.SignatureRequest.FromToken,
+					"to_token":   result.SignatureRequest.ToToken,
+					"amount":     result.SignatureRequest.Amount,
+					"to_address": result.SignatureRequest.ToAddress,
+					"value":      result.SignatureRequest.Value,
+					"data":       result.SignatureRequest.Data,
+					"gas_limit":  result.SignatureRequest.GasLimit,
+					"gas_price":  result.SignatureRequest.GasPrice,
+					"gas_fee":    result.SignatureRequest.GasFee,
+					"slippage":   result.SignatureRequest.Slippage,
+				}
+			}
+
+			c.JSON(http.StatusOK, status)
+		})
+
 		// 继续工作流（带签名）
 		api.POST("/continue", func(c *gin.Context) {
 			var req struct {
-				WorkflowContext interface{} `json:"workflow_context"`
-				Signature       string      `json:"signature"`
+				SessionID string `json:"session_id"`
+				Signature string `json:"signature"`
 			}
 
 			if err := c.ShouldBindJSON(&req); err != nil {
@@ -154,13 +301,34 @@ func main() {
 			}
 
 			ctx := context.Background()
-			result, err := chain.ContinueWithSignature(ctx, req.WorkflowContext, req.Signature)
+
+			// 从存储中获取工作流结果
+			sessionsMu.RLock()
+			workflowResult, exists := workflowSessions[req.SessionID]
+			sessionsMu.RUnlock()
+			if !exists {
+				c.JSON(http.StatusNotFound, gin.H{"error": "workflow not found"})
+				return
+			}
+
+			// 使用保存的工作流上下文
+			result, err := chain.ContinueWithSignature(ctx, workflowResult.WorkflowContext, req.Signature)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
 
-			c.JSON(http.StatusOK, gin.H{"result": result})
+			// 更新工作流会话存储
+			sessionsMu.Lock()
+			workflowSessions[req.SessionID] = result
+			sessionsMu.Unlock()
+
+			c.JSON(http.StatusOK, gin.H{
+				"session_id": req.SessionID,
+				"status":     "completed",
+				"message":    "工作流执行完成",
+				"result":     result,
+			})
 		})
 	}
 
@@ -195,7 +363,7 @@ func main() {
 
 	log.Println("✅ QNG Chain服务已启动")
 	log.Printf("📡 监控间隔: %dms", 5000)
-	log.Printf("🌐 图节点数: %d", len(cfg.MCP.QNG.Chain.LangGraph.Nodes))
+	log.Printf("🌐 图节点数: %d", len(chainConfig.Chain.LangGraph.Nodes))
 
 	// 启动健康检查
 	registry.StartHealthCheck()

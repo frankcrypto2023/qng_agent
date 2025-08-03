@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"qng_agent/internal/config"
@@ -17,9 +18,9 @@ type OpenAIClient struct {
 }
 
 type OpenAIRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
-	MaxTokens int      `json:"max_tokens,omitempty"`
+	Model     string    `json:"model"`
+	Messages  []Message `json:"messages"`
+	MaxTokens int       `json:"max_tokens,omitempty"`
 }
 
 type OpenAIResponse struct {
@@ -54,7 +55,7 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []Message) (string, er
 	log.Printf("  - BaseURL: %s", c.config.BaseURL)
 	log.Printf("  - Model: %s", c.config.Model)
 	log.Printf("  - Timeout: %d", c.config.Timeout)
-	
+
 	if c.config.APIKey == "" || c.config.BaseURL == "" {
 		log.Printf("⚠️  使用模拟客户端 (API密钥或BaseURL为空)")
 		mockClient := NewMockClient()
@@ -74,7 +75,7 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []Message) (string, er
 
 	url := c.config.BaseURL + "/chat/completions"
 	log.Printf("🌐 请求URL: %s", url)
-	
+
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
@@ -90,6 +91,12 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []Message) (string, er
 	defer resp.Body.Close()
 
 	var response OpenAIResponse
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+	log.Printf("🔍 响应内容: %s", string(body))
+
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return "", fmt.Errorf("failed to decode response: %w", err)
 	}

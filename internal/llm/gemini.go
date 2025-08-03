@@ -58,26 +58,33 @@ func (c *GeminiClient) Chat(ctx context.Context, messages []Message) (string, er
 		return mockClient.Chat(ctx, messages)
 	}
 
-	// 转换消息格式
+	// 转换消息格式 - Gemini API不支持角色，只接受纯文本内容
 	var contents []struct {
 		Parts []struct {
 			Text string `json:"text"`
 		} `json:"parts"`
 	}
 
-	for _, msg := range messages {
-		contents = append(contents, struct {
-			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
-		}{
-			Parts: []struct {
-				Text string `json:"text"`
-			}{
-				{Text: msg.Content},
-			},
-		})
+	// 将所有消息合并为一个连续的对话
+	var fullContent strings.Builder
+	for i, msg := range messages {
+		if i > 0 {
+			fullContent.WriteString("\n\n")
+		}
+		fullContent.WriteString(msg.Content)
 	}
+
+	contents = append(contents, struct {
+		Parts []struct {
+			Text string `json:"text"`
+		} `json:"parts"`
+	}{
+		Parts: []struct {
+			Text string `json:"text"`
+		}{
+			{Text: fullContent.String()},
+		},
+	})
 
 	requestBody := GeminiRequest{
 		Contents: contents,
@@ -88,9 +95,9 @@ func (c *GeminiClient) Chat(ctx context.Context, messages []Message) (string, er
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", 
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
 		c.config.Model, c.config.APIKey)
-	
+
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)

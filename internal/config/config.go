@@ -2,21 +2,21 @@ package config
 
 import (
 	"fmt"
-	"log"
 	"github.com/spf13/viper"
+	"log"
 )
 
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server" yaml:"server"`
-	Logging  LoggingConfig  `mapstructure:"logging" yaml:"logging"`
-	LLM      LLMConfig      `mapstructure:"llm" yaml:"llm"`
-	MCP      MCPConfig      `mapstructure:"mcp" yaml:"mcp"`
-	Agent    AgentConfig    `mapstructure:"agent" yaml:"agent"`
-	Frontend FrontendConfig `mapstructure:"frontend" yaml:"frontend"`
-	Database DatabaseConfig `mapstructure:"database" yaml:"database"`
-	Cache    CacheConfig    `mapstructure:"cache" yaml:"cache"`
-	Security SecurityConfig `mapstructure:"security" yaml:"security"`
-	Monitoring MonitoringConfig `mapstructure:"monitoring" yaml:"monitoring"`
+	Server      ServerConfig      `mapstructure:"server" yaml:"server"`
+	Logging     LoggingConfig     `mapstructure:"logging" yaml:"logging"`
+	LLM         LLMConfig         `mapstructure:"llm" yaml:"llm"`
+	MCP         MCPConfig         `mapstructure:"mcp" yaml:"mcp"`
+	Agent       AgentConfig       `mapstructure:"agent" yaml:"agent"`
+	Frontend    FrontendConfig    `mapstructure:"frontend" yaml:"frontend"`
+	Database    DatabaseConfig    `mapstructure:"database" yaml:"database"`
+	Cache       CacheConfig       `mapstructure:"cache" yaml:"cache"`
+	Security    SecurityConfig    `mapstructure:"security" yaml:"security"`
+	Monitoring  MonitoringConfig  `mapstructure:"monitoring" yaml:"monitoring"`
 	Development DevelopmentConfig `mapstructure:"development" yaml:"development"`
 }
 
@@ -34,18 +34,19 @@ type LoggingConfig struct {
 }
 
 type LLMConfig struct {
-	Provider string                 `mapstructure:"provider" yaml:"provider"`
-	OpenAI   OpenAIConfig          `mapstructure:"openai" yaml:"openai"`
-	Gemini   GeminiConfig          `mapstructure:"gemini" yaml:"gemini"`
-	Anthropic AnthropicConfig      `mapstructure:"anthropic" yaml:"anthropic"`
+	Provider   string           `mapstructure:"provider" yaml:"provider"`
+	OpenAI     OpenAIConfig     `mapstructure:"openai" yaml:"openai"`
+	Gemini     GeminiConfig     `mapstructure:"gemini" yaml:"gemini"`
+	Anthropic  AnthropicConfig  `mapstructure:"anthropic" yaml:"anthropic"`
+	ModelScope ModelScopeConfig `mapstructure:"modelscope" yaml:"modelscope"`
 }
 
 type OpenAIConfig struct {
-	APIKey   string `mapstructure:"api_key" yaml:"api_key"`
-	Model    string `mapstructure:"model" yaml:"model"`
-	BaseURL  string `mapstructure:"base_url" yaml:"base_url"`
-	Timeout  int    `mapstructure:"timeout" yaml:"timeout"`
-	MaxTokens int   `mapstructure:"max_tokens" yaml:"max_tokens"`
+	APIKey    string `mapstructure:"api_key" yaml:"api_key"`
+	Model     string `mapstructure:"model" yaml:"model"`
+	BaseURL   string `mapstructure:"base_url" yaml:"base_url"`
+	Timeout   int    `mapstructure:"timeout" yaml:"timeout"`
+	MaxTokens int    `mapstructure:"max_tokens" yaml:"max_tokens"`
 }
 
 type GeminiConfig struct {
@@ -60,79 +61,48 @@ type AnthropicConfig struct {
 	Timeout int    `mapstructure:"timeout"`
 }
 
+type ModelScopeConfig struct {
+	APIKey    string `mapstructure:"api_key"`
+	Model     string `mapstructure:"model"`
+	BaseURL   string `mapstructure:"base_url"`
+	Timeout   int    `mapstructure:"timeout"`
+	MaxTokens int    `mapstructure:"max_tokens"`
+}
+
 type MCPConfig struct {
-	Mode     string      `mapstructure:"mode"`
-	Host     string      `mapstructure:"host"`
-	Port     int         `mapstructure:"port"`
-	Timeout  int         `mapstructure:"timeout"`
-	QNG      QNGConfig   `mapstructure:"qng"`
-	MetaMask MetaMaskConfig `mapstructure:"metamask"`
+	Servers map[string]MCPServerConfig `mapstructure:"servers"`
 }
 
-type QNGConfig struct {
-	Enabled bool        `mapstructure:"enabled"`
-	Host    string      `mapstructure:"host"`
-	Port    int         `mapstructure:"port"`
-	Timeout int         `mapstructure:"timeout"`
-	Chain   ChainConfig `mapstructure:"chain"`
-}
-
-type ChainConfig struct {
-	Enabled     bool               `mapstructure:"enabled"`
-	Network     string             `mapstructure:"network"`
-	RPCURL      string             `mapstructure:"rpc_url"`
-	Transaction TransactionConfig  `mapstructure:"transaction"`
-	LangGraph   LangGraphConfig    `mapstructure:"langgraph"`
-	LLM         LLMConfig          `mapstructure:"llm"`
-}
-
-type TransactionConfig struct {
-	ConfirmationTimeout    int `mapstructure:"confirmation_timeout"`
-	PollingInterval        int `mapstructure:"polling_interval"`
-	RequiredConfirmations  int `mapstructure:"required_confirmations"`
-}
-
-type LangGraphConfig struct {
-	Enabled bool     `mapstructure:"enabled"`
-	Nodes   []string `mapstructure:"nodes"`
-}
-
-type MetaMaskConfig struct {
-	Enabled  bool   `mapstructure:"enabled"`
-	Host     string `mapstructure:"host"`
-	Port     int    `mapstructure:"port"`
-	Timeout  int    `mapstructure:"timeout"`
-	Network  string `mapstructure:"network"`
-	ChainID  string `mapstructure:"chain_id"`
-}
+// 注意：QNGConfig、ChainConfig、TransactionConfig、LangGraphConfig、MetaMaskConfig
+// 已移除，因为现在使用外部Chain服务
 
 type AgentConfig struct {
-	Name     string           `mapstructure:"name"`
-	Version  string           `mapstructure:"version"`
-	Workflow WorkflowConfig   `mapstructure:"workflow"`
-	Polling  PollingConfig    `mapstructure:"polling"`
-	LLM      LLMConfig        `mapstructure:"llm"`
-	MCP      MCPConfig        `mapstructure:"mcp"`
+	Name     string         `mapstructure:"name"`
+	Version  string         `mapstructure:"version"`
+	Workflow WorkflowConfig `mapstructure:"workflow"`
+	Polling  PollingConfig  `mapstructure:"polling"`
+	LLM      LLMConfig      `mapstructure:"llm"`
+	MCP      MCPConfig      `mapstructure:"mcp"`
 }
 
 type WorkflowConfig struct {
-	Timeout     int `mapstructure:"timeout"`
-	MaxRetries  int `mapstructure:"max_retries"`
-	RetryDelay  int `mapstructure:"retry_delay"`
+	Timeout    int `mapstructure:"timeout"`
+	MaxRetries int `mapstructure:"max_retries"`
+	RetryDelay int `mapstructure:"retry_delay"`
 }
 
 type PollingConfig struct {
-	Interval     int `mapstructure:"interval"`
-	Timeout      int `mapstructure:"timeout"`
-	MaxAttempts  int `mapstructure:"max_attempts"`
+	Interval    int `mapstructure:"interval"`
+	Timeout     int `mapstructure:"timeout"`
+	MaxAttempts int `mapstructure:"max_attempts"`
 }
 
 type FrontendConfig struct {
-	Enabled  bool         `mapstructure:"enabled"`
-	Host     string       `mapstructure:"host"`
-	Port     int          `mapstructure:"port"`
-	BuildDir string       `mapstructure:"build_dir"`
-	API      APIConfig    `mapstructure:"api"`
+	Enabled   bool            `mapstructure:"enabled"`
+	Host      string          `mapstructure:"host"`
+	Port      int             `mapstructure:"port"`
+	BuildDir  string          `mapstructure:"build_dir"`
+	API       APIConfig       `mapstructure:"api"`
 	WebSocket WebSocketConfig `mapstructure:"websocket"`
 }
 
@@ -147,10 +117,10 @@ type WebSocketConfig struct {
 }
 
 type DatabaseConfig struct {
-	Driver  string            `mapstructure:"driver"`
-	SQLite  SQLiteConfig      `mapstructure:"sqlite"`
-	Postgres PostgresConfig   `mapstructure:"postgres"`
-	MySQL   MySQLConfig       `mapstructure:"mysql"`
+	Driver   string         `mapstructure:"driver"`
+	SQLite   SQLiteConfig   `mapstructure:"sqlite"`
+	Postgres PostgresConfig `mapstructure:"postgres"`
+	MySQL    MySQLConfig    `mapstructure:"mysql"`
 }
 
 type SQLiteConfig struct {
@@ -175,8 +145,8 @@ type MySQLConfig struct {
 }
 
 type CacheConfig struct {
-	Driver string       `mapstructure:"driver"`
-	Redis  RedisConfig  `mapstructure:"redis"`
+	Driver string      `mapstructure:"driver"`
+	Redis  RedisConfig `mapstructure:"redis"`
 }
 
 type RedisConfig struct {
@@ -201,8 +171,8 @@ type CORSConfig struct {
 }
 
 type MonitoringConfig struct {
-	Enabled   bool         `mapstructure:"enabled"`
-	Metrics   MetricsConfig `mapstructure:"metrics"`
+	Enabled     bool              `mapstructure:"enabled"`
+	Metrics     MetricsConfig     `mapstructure:"metrics"`
 	HealthCheck HealthCheckConfig `mapstructure:"health_check"`
 }
 
@@ -223,12 +193,51 @@ type DevelopmentConfig struct {
 	CORS      bool `mapstructure:"cors"`
 }
 
+type MCPServerConfig struct {
+	Enabled      bool     `mapstructure:"enabled"`
+	Protocol     string   `mapstructure:"protocol"` // sse or stdio
+	URL          string   `mapstructure:"url"`      // for sse protocol
+	Command      []string `mapstructure:"command"`  // for stdio protocol
+	Timeout      int      `mapstructure:"timeout"`
+	Capabilities []string `mapstructure:"capabilities"`
+}
+
+// MetaMaskConfig MetaMask配置
+type MetaMaskConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	Network string `mapstructure:"network"`
+	Timeout int    `mapstructure:"timeout"`
+}
+
+// QNGConfig QNG配置
+type QNGConfig struct {
+	Enabled     bool                 `mapstructure:"enabled"`
+	Network     string               `mapstructure:"network"`
+	RPCURL      string               `mapstructure:"rpc_url"`
+	Transaction QNGTransactionConfig `mapstructure:"transaction"`
+	LangGraph   QNGLangGraphConfig   `mapstructure:"langgraph"`
+	LLM         LLMConfig            `mapstructure:"llm"`
+}
+
+// QNGTransactionConfig QNG交易配置
+type QNGTransactionConfig struct {
+	ConfirmationTimeout   int `mapstructure:"confirmation_timeout"`
+	PollingInterval       int `mapstructure:"polling_interval"`
+	RequiredConfirmations int `mapstructure:"required_confirmations"`
+}
+
+// QNGLangGraphConfig QNG LangGraph配置
+type QNGLangGraphConfig struct {
+	Enabled bool     `mapstructure:"enabled"`
+	Nodes   []string `mapstructure:"nodes"`
+}
+
 func LoadConfig(configPath string) *Config {
 	viper.SetConfigFile(configPath)
-	
+
 	// 设置默认值
 	setDefaults()
-	
+
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			log.Printf("⚠️  配置文件读取失败: %v", err)
@@ -252,10 +261,10 @@ func Load() (*Config, error) {
 // LoadFromFile 从指定文件加载配置
 func LoadFromFile(configPath string) (*Config, error) {
 	viper.SetConfigFile(configPath)
-	
+
 	// 设置默认值
 	setDefaults()
-	
+
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			return nil, err
@@ -283,7 +292,7 @@ func SaveToFile(cfg *Config, configPath string) error {
 	if err := v.ReadInConfig(); err != nil {
 		return fmt.Errorf("read existing config: %w", err)
 	}
-	
+
 	// 更新LLM配置
 	v.Set("llm.provider", cfg.LLM.Provider)
 	if cfg.LLM.OpenAI.APIKey != "" {
@@ -301,7 +310,7 @@ func SaveToFile(cfg *Config, configPath string) error {
 	if cfg.LLM.OpenAI.MaxTokens > 0 {
 		v.Set("llm.openai.max_tokens", cfg.LLM.OpenAI.MaxTokens)
 	}
-	
+
 	if cfg.LLM.Gemini.APIKey != "" {
 		v.Set("llm.gemini.api_key", cfg.LLM.Gemini.APIKey)
 	}
@@ -311,7 +320,7 @@ func SaveToFile(cfg *Config, configPath string) error {
 	if cfg.LLM.Gemini.Timeout > 0 {
 		v.Set("llm.gemini.timeout", cfg.LLM.Gemini.Timeout)
 	}
-	
+
 	if cfg.LLM.Anthropic.APIKey != "" {
 		v.Set("llm.anthropic.api_key", cfg.LLM.Anthropic.APIKey)
 	}
@@ -321,42 +330,40 @@ func SaveToFile(cfg *Config, configPath string) error {
 	if cfg.LLM.Anthropic.Timeout > 0 {
 		v.Set("llm.anthropic.timeout", cfg.LLM.Anthropic.Timeout)
 	}
-	
-	// 更新MCP配置
-	if cfg.MCP.Host != "" {
-		v.Set("mcp.host", cfg.MCP.Host)
+
+	if cfg.LLM.ModelScope.APIKey != "" {
+		v.Set("llm.modelscope.api_key", cfg.LLM.ModelScope.APIKey)
 	}
-	if cfg.MCP.Port > 0 {
-		v.Set("mcp.port", cfg.MCP.Port)
+	if cfg.LLM.ModelScope.Model != "" {
+		v.Set("llm.modelscope.model", cfg.LLM.ModelScope.Model)
 	}
-	if cfg.MCP.Timeout > 0 {
-		v.Set("mcp.timeout", cfg.MCP.Timeout)
+	if cfg.LLM.ModelScope.BaseURL != "" {
+		v.Set("llm.modelscope.base_url", cfg.LLM.ModelScope.BaseURL)
 	}
-	
-	// QNG MCP配置
-	v.Set("mcp.qng.enabled", cfg.MCP.QNG.Enabled)
-	if cfg.MCP.QNG.Host != "" {
-		v.Set("mcp.qng.host", cfg.MCP.QNG.Host)
+	if cfg.LLM.ModelScope.Timeout > 0 {
+		v.Set("llm.modelscope.timeout", cfg.LLM.ModelScope.Timeout)
 	}
-	if cfg.MCP.QNG.Port > 0 {
-		v.Set("mcp.qng.port", cfg.MCP.QNG.Port)
+	if cfg.LLM.ModelScope.MaxTokens > 0 {
+		v.Set("llm.modelscope.max_tokens", cfg.LLM.ModelScope.MaxTokens)
 	}
-	if cfg.MCP.QNG.Timeout > 0 {
-		v.Set("mcp.qng.timeout", cfg.MCP.QNG.Timeout)
+
+	// 更新MCP服务器配置
+	for serverName, serverConfig := range cfg.MCP.Servers {
+		v.Set(fmt.Sprintf("mcp.servers.%s.enabled", serverName), serverConfig.Enabled)
+		v.Set(fmt.Sprintf("mcp.servers.%s.protocol", serverName), serverConfig.Protocol)
+		v.Set(fmt.Sprintf("mcp.servers.%s.timeout", serverName), serverConfig.Timeout)
+
+		if serverConfig.URL != "" {
+			v.Set(fmt.Sprintf("mcp.servers.%s.url", serverName), serverConfig.URL)
+		}
+		if len(serverConfig.Command) > 0 {
+			v.Set(fmt.Sprintf("mcp.servers.%s.command", serverName), serverConfig.Command)
+		}
+		if len(serverConfig.Capabilities) > 0 {
+			v.Set(fmt.Sprintf("mcp.servers.%s.capabilities", serverName), serverConfig.Capabilities)
+		}
 	}
-	
-	// MetaMask MCP配置
-	v.Set("mcp.metamask.enabled", cfg.MCP.MetaMask.Enabled)
-	if cfg.MCP.MetaMask.Host != "" {
-		v.Set("mcp.metamask.host", cfg.MCP.MetaMask.Host)
-	}
-	if cfg.MCP.MetaMask.Port > 0 {
-		v.Set("mcp.metamask.port", cfg.MCP.MetaMask.Port)
-	}
-	if cfg.MCP.MetaMask.Timeout > 0 {
-		v.Set("mcp.metamask.timeout", cfg.MCP.MetaMask.Timeout)
-	}
-	
+
 	// 写回配置文件
 	return v.WriteConfig()
 }
@@ -366,39 +373,38 @@ func setDefaults() {
 	viper.SetDefault("server.host", "0.0.0.0")
 	viper.SetDefault("server.port", 8080)
 	viper.SetDefault("server.mode", "release")
-	
+
 	// 日志默认值
 	viper.SetDefault("logging.level", "info")
 	viper.SetDefault("logging.format", "json")
 	viper.SetDefault("logging.output", "stdout")
-	
+
 	// LLM默认值
 	viper.SetDefault("llm.provider", "openai")
 	viper.SetDefault("llm.openai.model", "gpt-4")
 	viper.SetDefault("llm.openai.base_url", "https://api.openai.com/v1")
 	viper.SetDefault("llm.openai.timeout", 30)
 	viper.SetDefault("llm.openai.max_tokens", 2000)
-	
-	// MCP默认值
-	viper.SetDefault("mcp.mode", "distributed")
-	viper.SetDefault("mcp.host", "localhost")
-	viper.SetDefault("mcp.port", 8081)
-	viper.SetDefault("mcp.timeout", 30)
-	
-	// QNG默认值
-	viper.SetDefault("mcp.qng.enabled", true)
-	viper.SetDefault("mcp.qng.host", "localhost")
-	viper.SetDefault("mcp.qng.port", 8082)
-	viper.SetDefault("mcp.qng.timeout", 30)
-	viper.SetDefault("mcp.qng.chain.enabled", true)
-	viper.SetDefault("mcp.qng.chain.network", "mainnet")
-	viper.SetDefault("mcp.qng.chain.langgraph.enabled", true)
-	
-	// MetaMask默认值
-	viper.SetDefault("mcp.metamask.enabled", true)
-	viper.SetDefault("mcp.metamask.network", "Ethereum Mainnet")
-	viper.SetDefault("mcp.metamask.chain_id", "1")
-	
+	viper.SetDefault("llm.modelscope.model", "qwen/Qwen2.5-7B-Instruct")
+	viper.SetDefault("llm.modelscope.base_url", "https://api.modelscope.cn/v1")
+	viper.SetDefault("llm.modelscope.timeout", 30)
+	viper.SetDefault("llm.modelscope.max_tokens", 2000)
+
+	// MCP服务器默认值
+	viper.SetDefault("mcp.servers.qng.enabled", true)
+	viper.SetDefault("mcp.servers.qng.protocol", "sse")
+	viper.SetDefault("mcp.servers.qng.url", "http://localhost:9091/api/mcp")
+	viper.SetDefault("mcp.servers.qng.timeout", 30)
+
+	viper.SetDefault("mcp.servers.metamask.enabled", true)
+	viper.SetDefault("mcp.servers.metamask.protocol", "stdio")
+	viper.SetDefault("mcp.servers.metamask.timeout", 30)
+
+	viper.SetDefault("mcp.servers.file_system.enabled", true)
+	viper.SetDefault("mcp.servers.file_system.protocol", "sse")
+	viper.SetDefault("mcp.servers.file_system.url", "http://localhost:8084/api/mcp")
+	viper.SetDefault("mcp.servers.file_system.timeout", 30)
+
 	// 智能体默认值
 	viper.SetDefault("agent.name", "QNG Agent")
 	viper.SetDefault("agent.version", "1.0.0")
@@ -408,7 +414,7 @@ func setDefaults() {
 	viper.SetDefault("agent.polling.interval", 2)
 	viper.SetDefault("agent.polling.timeout", 30)
 	viper.SetDefault("agent.polling.max_attempts", 15)
-	
+
 	// 前端默认值
 	viper.SetDefault("frontend.enabled", true)
 	viper.SetDefault("frontend.host", "localhost")
@@ -417,18 +423,18 @@ func setDefaults() {
 	viper.SetDefault("frontend.api.timeout", 30)
 	viper.SetDefault("frontend.websocket.enabled", true)
 	viper.SetDefault("frontend.websocket.url", "ws://localhost:8080/ws")
-	
+
 	// 数据库默认值
 	viper.SetDefault("database.driver", "sqlite")
 	viper.SetDefault("database.sqlite.path", "data/qng_agent.db")
-	
+
 	// 缓存默认值
 	viper.SetDefault("cache.driver", "memory")
-	
+
 	// 安全默认值
 	viper.SetDefault("security.jwt_expiry", "24h")
 	viper.SetDefault("security.cors.enabled", true)
-	
+
 	// 监控默认值
 	viper.SetDefault("monitoring.enabled", true)
 	viper.SetDefault("monitoring.metrics.enabled", true)
@@ -436,7 +442,7 @@ func setDefaults() {
 	viper.SetDefault("monitoring.health_check.enabled", true)
 	viper.SetDefault("monitoring.health_check.port", 8080)
 	viper.SetDefault("monitoring.health_check.path", "/health")
-	
+
 	// 开发默认值
 	viper.SetDefault("development.hot_reload", true)
 	viper.SetDefault("development.debug", true)

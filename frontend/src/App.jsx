@@ -1287,6 +1287,13 @@ function SettingsModal({ config, isLoading, onClose, onSave }) {
         api_key: '',
         model: 'claude-3-5-sonnet-20241022',
         timeout: 30
+      },
+      modelscope: {
+        api_key: '',
+        model: 'qwen/Qwen2.5-7B-Instruct',
+        base_url: 'https://api.modelscope.cn/v1',
+        timeout: 30,
+        max_tokens: 2000
       }
     },
     mcp: {
@@ -1349,6 +1356,18 @@ function SettingsModal({ config, isLoading, onClose, onSave }) {
               api_key: anthropicConfig.APIKey || anthropicConfig.api_key || newData.llm.anthropic.api_key,
               model: anthropicConfig.Model || anthropicConfig.model || newData.llm.anthropic.model,
               timeout: anthropicConfig.Timeout || anthropicConfig.timeout || newData.llm.anthropic.timeout
+            };
+          }
+          
+          if (llmConfig.ModelScope || llmConfig.modelscope) {
+            const modelscopeConfig = llmConfig.ModelScope || llmConfig.modelscope;
+            newData.llm.modelscope = {
+              ...newData.llm.modelscope,
+              api_key: modelscopeConfig.APIKey || modelscopeConfig.api_key || newData.llm.modelscope.api_key,
+              model: modelscopeConfig.Model || modelscopeConfig.model || newData.llm.modelscope.model,
+              base_url: modelscopeConfig.BaseURL || modelscopeConfig.base_url || newData.llm.modelscope.base_url,
+              timeout: modelscopeConfig.Timeout || modelscopeConfig.timeout || newData.llm.modelscope.timeout,
+              max_tokens: modelscopeConfig.MaxTokens || modelscopeConfig.max_tokens || newData.llm.modelscope.max_tokens
             };
           }
         }
@@ -1433,6 +1452,13 @@ function SettingsModal({ config, isLoading, onClose, onSave }) {
           APIKey: formData.llm.anthropic.api_key,
           Model: formData.llm.anthropic.model,
           Timeout: formData.llm.anthropic.timeout
+        },
+        ModelScope: {
+          APIKey: formData.llm.modelscope.api_key,
+          Model: formData.llm.modelscope.model,
+          BaseURL: formData.llm.modelscope.base_url,
+          Timeout: formData.llm.modelscope.timeout,
+          MaxTokens: formData.llm.modelscope.max_tokens
         }
       },
       MCP: {
@@ -1494,6 +1520,7 @@ function SettingsModal({ config, isLoading, onClose, onSave }) {
                 <option value="openai">OpenAI</option>
                 <option value="gemini">Google Gemini</option>
                 <option value="anthropic">Anthropic Claude</option>
+                <option value="modelscope">ModelScope</option>
               </select>
             </div>
 
@@ -1622,6 +1649,65 @@ function SettingsModal({ config, isLoading, onClose, onSave }) {
                     onChange={(e) => handleInputChange('llm.anthropic.timeout', parseInt(e.target.value))}
                     min="10"
                     max="300"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* ModelScope 配置 */}
+            {formData.llm?.provider === 'modelscope' && (
+              <div className="provider-config">
+                <h4>🌟 ModelScope 配置</h4>
+                <div className="form-group">
+                  <label>API Key:</label>
+                  <input
+                    type="password"
+                    value={formData.llm?.modelscope?.api_key || ''}
+                    onChange={(e) => handleInputChange('llm.modelscope.api_key', e.target.value)}
+                    placeholder="ms-..."
+                  />
+                </div>
+                <div className="form-group">
+                  <label>模型:</label>
+                  <select 
+                    value={formData.llm?.modelscope?.model || 'qwen/Qwen2.5-7B-Instruct'}
+                    onChange={(e) => handleInputChange('llm.modelscope.model', e.target.value)}
+                  >
+                    <option value="qwen/Qwen2.5-7B-Instruct">Qwen 2.5 7B Instruct</option>
+                    <option value="qwen/Qwen2.5-14B-Instruct">Qwen 2.5 14B Instruct</option>
+                    <option value="qwen/Qwen2.5-72B-Instruct">Qwen 2.5 72B Instruct</option>
+                    <option value="qwen/Qwen2.5-VL-72B-Instruct">Qwen 2.5 VL 72B Instruct</option>
+                    <option value="baichuan-inc/Baichuan2-7B-Chat">Baichuan2 7B Chat</option>
+                    <option value="THUDM/chatglm3-6b">ChatGLM3 6B</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Base URL:</label>
+                  <input
+                    type="text"
+                    value={formData.llm?.modelscope?.base_url || ''}
+                    onChange={(e) => handleInputChange('llm.modelscope.base_url', e.target.value)}
+                    placeholder="https://api.modelscope.cn/v1"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>超时时间 (秒):</label>
+                  <input
+                    type="number"
+                    value={formData.llm?.modelscope?.timeout || 30}
+                    onChange={(e) => handleInputChange('llm.modelscope.timeout', parseInt(e.target.value))}
+                    min="10"
+                    max="300"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>最大Token数:</label>
+                  <input
+                    type="number"
+                    value={formData.llm?.modelscope?.max_tokens || 2000}
+                    onChange={(e) => handleInputChange('llm.modelscope.max_tokens', parseInt(e.target.value))}
+                    min="100"
+                    max="8000"
                   />
                 </div>
               </div>

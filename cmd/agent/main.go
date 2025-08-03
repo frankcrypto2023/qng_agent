@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"qng_agent/internal/agent"
 	"qng_agent/internal/config"
-	"qng_agent/internal/mcp"
 	"qng_agent/internal/service"
 	"syscall"
 	"time"
@@ -120,11 +119,8 @@ func main() {
 	log.Println("  - Chain功能由QNG服务提供")
 	waitForServices([]string{"mcp"}, registry, 30*time.Second)
 
-	// 创建MCP HTTP客户端
-	mcpClient := mcp.NewHTTPClient(cfg.MCP)
-
 	// 初始化Agent管理器
-	agentManager := agent.NewManager(mcpClient, cfg.LLM)
+	agentManager := agent.NewManager(cfg.MCP, cfg.LLM)
 
 	// 创建HTTP服务器
 	gin.SetMode(gin.ReleaseMode)

@@ -23,6 +23,8 @@ func NewClient(config config.LLMConfig) (Client, error) {
 		return NewAnthropicClient(config.Anthropic)
 	case "gemini":
 		return NewGeminiClient(config.Gemini)
+	case "modelscope":
+		return NewModelScopeClient(config.ModelScope)
 	default:
 		return NewOpenAIClient(config.OpenAI)
 	}
@@ -42,7 +44,7 @@ func (c *MockClient) Chat(ctx context.Context, messages []Message) (string, erro
 	}
 
 	lastMessage := messages[len(messages)-1].Content
-	
+
 	// 根据消息内容返回模拟响应
 	if contains(lastMessage, "兑换") || contains(lastMessage, "swap") {
 		return `{
@@ -56,7 +58,7 @@ func (c *MockClient) Chat(ctx context.Context, messages []Message) (string, erro
 			]
 		}`, nil
 	}
-	
+
 	if contains(lastMessage, "质押") || contains(lastMessage, "stake") {
 		return `{
 			"tasks": [
@@ -69,7 +71,7 @@ func (c *MockClient) Chat(ctx context.Context, messages []Message) (string, erro
 			]
 		}`, nil
 	}
-	
+
 	// 默认响应
 	return `{
 		"tasks": [
@@ -84,10 +86,10 @@ func (c *MockClient) Chat(ctx context.Context, messages []Message) (string, erro
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || 
-		(len(s) > len(substr) && (s[:len(substr)] == substr || 
-		s[len(s)-len(substr):] == substr || 
-		containsSubstring(s, substr))))
+	return len(s) >= len(substr) && (s == substr ||
+		(len(s) > len(substr) && (s[:len(substr)] == substr ||
+			s[len(s)-len(substr):] == substr ||
+			containsSubstring(s, substr))))
 }
 
 func containsSubstring(s, substr string) bool {

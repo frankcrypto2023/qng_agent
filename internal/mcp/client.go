@@ -1,188 +1,199 @@
 package mcp
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"io"
 	"net/http"
-	"qng_agent/internal/config"
+	"os/exec"
+	"strings"
 	"time"
 )
 
-// HTTPClient MCP HTTP 客户端
-type HTTPClient struct {
-	baseURL    string
-	httpClient *http.Client
-	config     config.MCPConfig
+// ClientInterface 定义MCP客户端接口
+type ClientInterface interface {
+	Call(ctx context.Context, method string, params map[string]any) (any, error)
+	GetCapabilities() []string
+	Close() error
 }
 
-// MCPRequest MCP 请求结构
-type MCPRequest struct {
-	Server string                 `json:"server"`
-	Method string                 `json:"method"`
-	Params map[string]interface{} `json:"params"`
+// SSEClient SSE协议客户端
+type SSEClient struct {
+	url     string
+	timeout time.Duration
+	client  *http.Client
 }
 
-// MCPResponse MCP 响应结构
-type MCPResponse struct {
-	Result interface{} `json:"result"`
-	Error  string      `json:"error,omitempty"`
+// StdioClient stdio协议客户端
+type StdioClient struct {
+	command []string
+	timeout time.Duration
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	stdout  io.ReadCloser
 }
 
-// NewHTTPClient 创建新的 MCP HTTP 客户端
-func NewHTTPClient(config config.MCPConfig) *HTTPClient {
-	baseURL := fmt.Sprintf("http://%s:%d", config.Host, 9091) // 使用固定的 MCP 服务器端口
-	
-	log.Printf("🔧 创建MCP HTTP客户端: %s", baseURL)
-	
-	return &HTTPClient{
-		baseURL: baseURL,
-		httpClient: &http.Client{
-			Timeout: time.Duration(config.Timeout) * time.Second,
+// NewSSEClient 创建SSE客户端
+func NewSSEClient(url string, timeout int) *SSEClient {
+	return &SSEClient{
+		url:     url,
+		timeout: time.Duration(timeout) * time.Second,
+		client: &http.Client{
+			Timeout: time.Duration(timeout) * time.Second,
 		},
-		config: config,
 	}
 }
 
-// Call 调用 MCP 服务器方法
-func (c *HTTPClient) Call(ctx context.Context, server, method string, params map[string]interface{}) (interface{}, error) {
-	log.Printf("🔄 MCP服务器调用")
-	log.Printf("🔧 服务: %s", server)
-	log.Printf("🛠️  方法: %s", method)
-	log.Printf("📋 参数: %v", params)
-	
-	// 检查服务器连接
-	if !c.isServerRunning() {
-		log.Printf("❌ MCP服务器未运行")
-		return nil, fmt.Errorf("MCP server is not running")
+// NewStdioClient 创建stdio客户端
+func NewStdioClient(command []string, timeout int) *StdioClient {
+	return &StdioClient{
+		command: command,
+		timeout: time.Duration(timeout) * time.Second,
 	}
-	
-	// 构建请求
-	reqBody := MCPRequest{
-		Server: server,
-		Method: method,
-		Params: params,
+}
+
+// Call SSE客户端调用方法
+func (c *SSEClient) Call(ctx context.Context, method string, params map[string]any) (any, error) {
+	// 从URL中提取服务器名称
+	serverName := "qng" // 默认值
+	if strings.Contains(c.url, "qng") {
+		serverName = "qng"
+	} else if strings.Contains(c.url, "metamask") {
+		serverName = "metamask"
+	} else if strings.Contains(c.url, "file_system") {
+		serverName = "file_system"
 	}
-	
-	jsonData, err := json.Marshal(reqBody)
+
+	requestBody := map[string]any{
+		"server": serverName,
+		"method": method,
+		"params": params,
+	}
+
+	jsonData, err := json.Marshal(requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
-	
-	// 发送 HTTP 请求
-	url := c.baseURL + "/api/mcp/call"
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.url+"/call", strings.NewReader(string(jsonData)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
-	
-	resp, err := c.httpClient.Do(req)
+
+	resp, err := c.client.Do(req)
 	if err != nil {
-		log.Printf("❌ HTTP请求失败: %v", err)
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
+		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("❌ HTTP状态码错误: %d", resp.StatusCode)
 		return nil, fmt.Errorf("HTTP error: %d", resp.StatusCode)
 	}
-	
-	// 解析响应
-	var mcpResp MCPResponse
-	if err := json.NewDecoder(resp.Body).Decode(&mcpResp); err != nil {
+
+	var response map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-	
-	if mcpResp.Error != "" {
-		log.Printf("❌ MCP错误: %s", mcpResp.Error)
-		return nil, fmt.Errorf("MCP error: %s", mcpResp.Error)
+
+	if errorMsg, exists := response["error"]; exists {
+		return nil, fmt.Errorf("MCP error: %v", errorMsg)
 	}
-	
-	log.Printf("✅ MCP调用成功")
-	return mcpResp.Result, nil
+
+	return response["result"], nil
 }
 
-// Start 启动客户端（HTTP 客户端不需要启动）
-func (c *HTTPClient) Start() error {
-	log.Printf("🔗 MCP HTTP客户端已就绪")
+// GetCapabilities SSE客户端获取能力
+func (c *SSEClient) GetCapabilities() []string {
+	// 这里可以调用capabilities端点获取实际能力
+	// 暂时返回空，由配置决定
+	return []string{}
+}
+
+// Close SSE客户端关闭
+func (c *SSEClient) Close() error {
+	// SSE客户端不需要特殊清理
 	return nil
 }
 
-// Stop 停止客户端
-func (c *HTTPClient) Stop() error {
-	log.Printf("🔌 MCP HTTP客户端已断开")
+// Call stdio客户端调用方法
+func (c *StdioClient) Call(ctx context.Context, method string, params map[string]any) (any, error) {
+	if c.cmd == nil {
+		if err := c.start(); err != nil {
+			return nil, fmt.Errorf("failed to start stdio client: %w", err)
+		}
+	}
+
+	request := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  method,
+		"params":  params,
+	}
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// 发送请求
+	_, err = c.stdin.Write(append(jsonData, '\n'))
+	if err != nil {
+		return nil, fmt.Errorf("failed to write to stdin: %w", err)
+	}
+
+	// 读取响应
+	var response map[string]any
+	if err := json.NewDecoder(c.stdout).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if errorMsg, exists := response["error"]; exists {
+		return nil, fmt.Errorf("MCP error: %v", errorMsg)
+	}
+
+	return response["result"], nil
+}
+
+// GetCapabilities stdio客户端获取能力
+func (c *StdioClient) GetCapabilities() []string {
+	// 这里可以调用capabilities方法获取实际能力
+	// 暂时返回空，由配置决定
+	return []string{}
+}
+
+// Close stdio客户端关闭
+func (c *StdioClient) Close() error {
+	if c.cmd != nil && c.cmd.Process != nil {
+		return c.cmd.Process.Kill()
+	}
 	return nil
 }
 
-// GetCapabilities 获取服务器能力
-func (c *HTTPClient) GetCapabilities() map[string]interface{} {
-	ctx := context.Background()
-	
-	url := c.baseURL + "/api/mcp/capabilities"
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		log.Printf("❌ 创建能力查询请求失败: %v", err)
-		return make(map[string]interface{})
+// start 启动stdio进程
+func (c *StdioClient) start() error {
+	if len(c.command) == 0 {
+		return fmt.Errorf("no command specified")
 	}
-	
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		log.Printf("❌ 能力查询请求失败: %v", err)
-		return make(map[string]interface{})
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("❌ 能力查询状态码错误: %d", resp.StatusCode)
-		return make(map[string]interface{})
-	}
-	
-	var response struct {
-		Capabilities map[string]interface{} `json:"capabilities"`
-	}
-	
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		log.Printf("❌ 解析能力响应失败: %v", err)
-		return make(map[string]interface{})
-	}
-	
-	return response.Capabilities
-}
 
-// isServerRunning 检查服务器是否运行
-func (c *HTTPClient) isServerRunning() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	
-	url := c.baseURL + "/health"
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		log.Printf("❌ 创建健康检查请求失败: %v", err)
-		return false
-	}
-	
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		log.Printf("❌ 健康检查请求失败: %v", err)
-		return false
-	}
-	defer resp.Body.Close()
-	
-	return resp.StatusCode == http.StatusOK
-}
+	c.cmd = exec.Command(c.command[0], c.command[1:]...)
 
-// ServerInterface 定义服务器接口，兼容原有代码
-type ServerInterface interface {
-	Call(ctx context.Context, server, method string, params map[string]interface{}) (interface{}, error)
-	Start() error
-	Stop() error
-	GetCapabilities() map[string]interface{}
-}
+	var err error
+	c.stdin, err = c.cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
 
-// 确保 HTTPClient 实现 ServerInterface
-var _ ServerInterface = (*HTTPClient)(nil) 
+	c.stdout, err = c.cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	if err := c.cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start command: %w", err)
+	}
+
+	return nil
+}

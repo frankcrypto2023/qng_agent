@@ -1,26 +1,4 @@
 agent:
-    llm:
-        openai:
-            api_key: ${OPENAI_API_KEY}
-            model: gpt-4
-            timeout: 30
-        provider: openai
-    mcp:
-        host: localhost
-        metamask:
-            chain_id: "1"
-            enabled: true
-            host: localhost
-            network: Ethereum Mainnet
-            port: 8083
-            timeout: 30
-        port: 8081
-        qng:
-            enabled: true
-            host: localhost
-            port: 8082
-            timeout: 30
-        timeout: 30
     name: QNG Agent
     polling:
         interval: 2
@@ -77,60 +55,57 @@ llm:
         model: claude-3-5-sonnet-20241022
         timeout: 30
     gemini:
-        api_key: AIzaSyCIaQYzt085dz2saJMmAPhcoGVe-3I_Sto
+        api_key: AIzaSyAkegfnlZ90z5TOINMPViATD7gTq7BLmAw
         model: gemini-1.5-flash
         timeout: 30
+    modelscope:
+        api_key: "3d885e31-789d-4a46-bb38-b849ae6e37b6"
+        model: Qwen/Qwen2.5-VL-72B-Instruct
+        base_url: https://api-inference.modelscope.cn/v1
+        timeout: 30
+        max_tokens: 2000
     openai:
         api_key: ""
         base_url: https://api.openai.com/v1
         max_tokens: 2000
         model: gpt-4
         timeout: 30
-    provider: gemini
+    provider: modelscope
 logging:
     file: logs/qng_agent.log
     format: json
     level: info
     output: stdout
 mcp:
-    host: localhost
-    metamask:
-        chain_id: "1"
-        enabled: true
-        host: localhost
-        network: Ethereum Mainnet
-        port: 8083
-        timeout: 30
-    mode: distributed
-    port: 8081
-    qng:
-        chain:
+    # 新版标准化MCP服务器配置
+    servers:
+        qng:
             enabled: true
-            langgraph:
-                enabled: true
-                nodes:
-                    - task_decomposer
-                    - swap_executor
-                    - stake_executor
-                    - signature_validator
-                    - result_aggregator
-            llm:
-                openai:
-                    api_key: ${OPENAI_API_KEY}
-                    model: gpt-4
-                    timeout: 30
-                provider: openai
-            network: mainnet
-            rpc_url: http://47.242.255.132:1234/
-            transaction:
-                confirmation_timeout: 60
-                polling_interval: 2
-                required_confirmations: 1
-        enabled: true
-        host: localhost
-        port: 8082
-        timeout: 30
-    timeout: 30
+            protocol: sse
+            url: http://localhost:9091/api/mcp
+            timeout: 30
+            capabilities:
+                - execute_workflow
+                - get_session_status
+                - submit_signature
+        metamask:
+            enabled: true
+            protocol: stdio
+            command: ["node", "metamask-server.js"]
+            timeout: 30
+            capabilities:
+                - connect_wallet
+                - sign_transaction
+                - get_balance
+        file_system:
+            enabled: true
+            protocol: sse
+            url: http://localhost:8084/api/mcp
+            timeout: 30
+            capabilities:
+                - read_file
+                - write_file
+                - list_directory
 monitoring:
     enabled: true
     health_check:
