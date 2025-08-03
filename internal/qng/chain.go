@@ -178,7 +178,7 @@ func NewChain(chainConfig ChainConfig) *Chain {
 	} else {
 		log.Printf("⚠️  未配置RPC URL，使用模拟确认")
 	}
-	fmt.Println("------------", chainConfig.Chain.LLM.Provider)
+	// fmt.Println("------------", chainConfig.Chain.LLM.Provider)
 	// 创建LangGraph
 	langGraph := NewLangGraph(llmClient, contractManager, rpcClient, chainConfig.Chain.Transaction)
 

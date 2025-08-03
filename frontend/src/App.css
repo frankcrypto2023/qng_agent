@@ -16,16 +16,17 @@ body {
 
 .app {
   max-width: 1200px;
-  margin: 0 auto;
-  height: 100vh;
+  width: 95%;
+  height: 95vh;
+  margin: 2.5vh auto;
   display: flex;
   flex-direction: column;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   border-radius: 20px;
-  margin: 20px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
   overflow: hidden;
+  position: relative;
 }
 
 .header {
@@ -244,11 +245,51 @@ body {
   color: #f44336;
 }
 
+.wallet-connect-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  width: 100%;
+}
+
+.wallet-instructions {
+  margin-top: 20px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 12px;
+  border: 1px solid #e1e5e9;
+  width: 100%;
+  max-width: 500px;
+}
+
+.wallet-instructions h4 {
+  margin-bottom: 15px;
+  color: #333;
+  font-size: 16px;
+}
+
+.wallet-instructions ol {
+  text-align: left;
+  padding-left: 20px;
+}
+
+.wallet-instructions li {
+  margin-bottom: 8px;
+  color: #666;
+  font-size: 14px;
+}
+
 .chat-container {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0;
 }
 
 .messages {
@@ -256,6 +297,8 @@ body {
   overflow-y: auto;
   padding: 20px;
   background: #f8f9fa;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .message {
@@ -277,20 +320,26 @@ body {
 .message.user {
   display: flex;
   justify-content: flex-end;
+  align-items: flex-end;
+  flex-direction: column;
 }
 
 .message.system {
   display: flex;
   justify-content: flex-start;
+  align-items: flex-start;
+  flex-direction: column;
 }
 
 .message.error {
   display: flex;
   justify-content: flex-start;
+  align-items: flex-start;
+  flex-direction: column;
 }
 
 .message-content {
-  max-width: 70%;
+  max-width: 80%;
   padding: 12px 16px;
   border-radius: 18px;
   font-size: 14px;
@@ -323,7 +372,19 @@ body {
   font-size: 11px;
   color: #999;
   margin-top: 4px;
-  text-align: center;
+  text-align: right;
+}
+
+.message.user .message-time {
+  text-align: right;
+}
+
+.message.system .message-time {
+  text-align: left;
+}
+
+.message.error .message-time {
+  text-align: left;
 }
 
 .loading {
@@ -351,7 +412,9 @@ body {
   background: #fff3cd;
   border: 1px solid #ffeaa7;
   border-radius: 12px;
-  margin: 20px;
+  margin: 20px auto;
+  width: 95%;
+  max-width: 600px;
   padding: 20px;
   animation: slideIn 0.3s ease-out;
 }
@@ -379,12 +442,6 @@ body {
   padding: 15px;
   margin-bottom: 15px;
   border: 1px solid #ffeaa7;
-}
-
-.signature-details p {
-  margin-bottom: 8px;
-  font-size: 14px;
-  color: #333;
 }
 
 .signature-details p:last-child {
@@ -426,6 +483,8 @@ body {
   display: flex;
   gap: 12px;
   align-items: flex-end;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .input-container textarea {
@@ -439,6 +498,7 @@ body {
   max-height: 120px;
   font-family: inherit;
   transition: border-color 0.3s ease;
+  min-width: 0;
 }
 
 .input-container textarea:focus {
@@ -462,6 +522,7 @@ body {
   font-weight: 500;
   transition: all 0.3s ease;
   min-width: 80px;
+  flex-shrink: 0;
 }
 
 .send-btn:hover:not(:disabled) {
@@ -497,7 +558,9 @@ body {
 /* 响应式设计 */
 @media (max-width: 768px) {
   .app {
-    margin: 10px;
+    width: 98%;
+    height: 98vh;
+    margin: 1vh auto;
     border-radius: 15px;
   }
   
@@ -511,20 +574,40 @@ body {
   
   .messages {
     padding: 15px;
+    width: 100%;
   }
   
   .message-content {
-    max-width: 85%;
+    max-width: 90%;
     font-size: 13px;
   }
   
   .input-container {
     padding: 15px;
+    width: 100%;
+  }
+  
+  .input-container textarea {
+    min-width: 0;
   }
   
   .signature-request {
-    margin: 15px;
+    margin: 15px auto;
+    width: 95%;
+    max-width: 95%;
     padding: 15px;
+  }
+  
+  .signature-details p {
+    font-size: 13px;
+    word-break: break-all;
+  }
+  
+  .signature-details .contract-address {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
   }
 
   .wallet-details {
@@ -768,18 +851,7 @@ body {
 }
 
 /* 签名请求详情增强 */
-.signature-details p {
-  margin: 6px 0;
-  font-size: 13px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
 
-.signature-details strong {
-  color: #333;
-  min-width: 80px;
-}
 
 /* 设置相关样式 */
 .header {

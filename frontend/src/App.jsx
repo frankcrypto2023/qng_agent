@@ -1175,7 +1175,7 @@ function App() {
               <p><strong>数量:</strong> {signatureRequest.amount}</p>
               <p><strong>Gas费:</strong> {signatureRequest.gas_fee}</p>
               <p><strong>滑点:</strong> {signatureRequest.slippage}</p>
-              <p><strong>合约地址:</strong> {signatureRequest.to_address}</p>
+              <p className="contract-address"><strong>合约地址:</strong> {signatureRequest.to_address}</p>
               <p><strong>交易值:</strong> {signatureRequest.value}</p>
             </div>
             
@@ -1240,7 +1240,7 @@ function App() {
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="输入您的请求，例如：我需要将1000USDT兑换成BTC"
+            placeholder="输入您的请求，例如：我需要将1MEER兑换成MTK,并去质押"
             disabled={isLoading}
           />
           <button 

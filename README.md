@@ -147,7 +147,7 @@ mcp:
 
 2. **发送请求**
    - 在输入框中输入您的需求
-   - 例如："我需要将1000USDT兑换成BTC"
+   - 例如："我需要将1MEER兑换成MTK,并去质押"
 
 3. **等待处理**
    - 系统会分析您的请求
@@ -167,7 +167,7 @@ mcp:
 
 ```
 ✅ 代币兑换
-"我需要将1000USDT兑换成BTC"
+"我需要将1MEER兑换成MTK,并去质押"
 "帮我用500USDT换ETH"
 
 ✅ 代币质押
@@ -192,7 +192,7 @@ POST /api/agent/process
 Content-Type: application/json
 
 {
-  "message": "我需要将1000USDT兑换成BTC"
+  "message": "我需要将1MEER兑换成MTK,并去质押"
 }
 ```
 

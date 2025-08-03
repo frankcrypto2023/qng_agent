@@ -84,6 +84,11 @@ func (lg *LangGraph) registerNodes() {
 		NewResultAggregatorNode(),                            // 结果聚合节点
 	}
 
+	// 将节点保存到映射中，以便后续直接调用
+	for _, node := range nodes {
+		lg.nodes[node.GetName()] = node
+	}
+
 	for _, node := range nodes {
 		lg.g.AddNode(node.GetName(), func(ctx context.Context, name string, state graph.State) (graph.State, error) {
 			log.Printf("🔄 执行节点: %s (类型: %s)", node.GetName(), node.GetType())
@@ -302,8 +307,9 @@ func (lg *LangGraph) ContinueWithSignature(ctx context.Context, workflowContext 
 			Data:    nodeOutput.Data,
 			Context: nodeInput.Context,
 		}
-		lg.g.SetEntryPoint(nextNode)
-		state, err := lg.r.Invoke(ctx, map[string]interface{}{"input": nextInput})
+
+		// 直接调用下一个节点，避免修改图的入口点
+		nextState, err := lg.executeNode(ctx, nextNode, nextInput)
 		if err != nil {
 			log.Printf("❌ 继续执行失败: %v", err)
 			return nil, err
@@ -311,7 +317,7 @@ func (lg *LangGraph) ContinueWithSignature(ctx context.Context, workflowContext 
 		log.Printf("✅ 继续执行成功")
 
 		// 安全地处理结果
-		if result, exists := state["result"]; exists && result != nil {
+		if result, exists := nextState["result"]; exists && result != nil {
 			if processResult, ok := result.(*ProcessResult); ok {
 				return processResult, nil
 			}
@@ -328,4 +334,103 @@ func (lg *LangGraph) ContinueWithSignature(ctx context.Context, workflowContext 
 	return &ProcessResult{
 		FinalResult: nodeOutput.Data,
 	}, nil
+}
+
+// executeNode 直接执行指定节点
+func (lg *LangGraph) executeNode(ctx context.Context, nodeName string, input *NodeInput) (map[string]interface{}, error) {
+	// 查找节点
+	node, exists := lg.nodes[nodeName]
+	if !exists {
+		return nil, fmt.Errorf("node not found: %s", nodeName)
+	}
+
+	// 执行节点
+	output, err := node.Execute(ctx, *input)
+	if err != nil {
+		return nil, fmt.Errorf("node execution failed: %w", err)
+	}
+
+	// 处理节点特定的逻辑
+	if nodeName == "task_decomposer" {
+		if taskDecomposer, ok := node.(*TaskDecomposerNode); ok {
+			output.NextNodes = taskDecomposer.determineNextNodes(output.Data["tasks"].([]map[string]any))
+		}
+	} else if nodeName == "signature_validator" {
+		if signatureValidator, ok := node.(*SignatureValidatorNode); ok {
+			if txHash, exists := output.Data["transaction_hash"]; exists {
+				if txHashStr, ok := txHash.(string); ok {
+					output.NextNodes = signatureValidator.checkDependentTasks(input.Data, txHashStr)
+				}
+			}
+		}
+	}
+
+	// 构建状态
+	state := map[string]interface{}{
+		"input":  input,
+		"output": output,
+		nodeName: node,
+	}
+
+	// 检查是否需要用户授权
+	if output.NeedUserAuth {
+		// 将AuthRequest转换为SignatureRequest
+		var signatureRequest *SignatureRequest
+		if authReq, ok := output.AuthRequest.(*SignatureRequest); ok {
+			signatureRequest = authReq
+		} else {
+			log.Printf("⚠️  AuthRequest类型不正确，尝试转换")
+			// 如果类型不正确，尝试从map转换
+			if authMap, ok := output.AuthRequest.(map[string]any); ok {
+				signatureRequest = &SignatureRequest{
+					Action:    getString(authMap, "action"),
+					FromToken: getString(authMap, "from_token"),
+					ToToken:   getString(authMap, "to_token"),
+					Amount:    getString(authMap, "amount"),
+					ToAddress: getString(authMap, "to_address"),
+					Value:     getString(authMap, "value"),
+					Data:      getString(authMap, "data"),
+					GasLimit:  getString(authMap, "gas_limit"),
+					GasPrice:  getString(authMap, "gas_price"),
+					GasFee:    getString(authMap, "gas_fee"),
+					Slippage:  getString(authMap, "slippage"),
+				}
+			}
+		}
+
+		state["result"] = &ProcessResult{
+			NeedSignature:    true,
+			SignatureRequest: signatureRequest,
+			WorkflowContext: map[string]any{
+				"current_node": nodeName,
+				"node_output":  output,
+				"input":        *input,
+			},
+		}
+		return state, nil
+	}
+
+	// 检查是否已完成
+	if output.Completed {
+		state["result"] = &ProcessResult{
+			FinalResult: output.Data,
+		}
+		return state, nil
+	}
+
+	// 继续执行下一个节点
+	if len(output.NextNodes) > 0 {
+		nextNode := output.NextNodes[0]
+		nextInput := &NodeInput{
+			Data:    output.Data,
+			Context: input.Context,
+		}
+		return lg.executeNode(ctx, nextNode, nextInput)
+	}
+
+	// 没有下一个节点，工作流完成
+	state["result"] = &ProcessResult{
+		FinalResult: output.Data,
+	}
+	return state, nil
 }

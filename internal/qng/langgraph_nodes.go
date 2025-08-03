@@ -132,7 +132,7 @@ CRITICAL: 你必须只返回有效的JSON格式，不要包含任何其他文字
 
 	// 调用LLM进行任务分解
 	if n.llmClient != nil {
-		log.Printf("🤖 调用LLM进行任务分解...", n.llmClient)
+		log.Printf("🤖 调用LLM进行任务分解...")
 		response, err := n.llmClient.Chat(ctx, []llm.Message{
 			{Role: "user", Content: prompt},
 		})
