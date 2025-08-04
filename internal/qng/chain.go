@@ -205,6 +205,11 @@ func (c *Chain) Stop() error {
 	return nil
 }
 
+// GetLLMClient 获取LLM客户端
+func (c *Chain) GetLLMClient() llm.Client {
+	return c.llmClient
+}
+
 func (c *Chain) ProcessMessage(ctx context.Context, message string) (*ProcessResult, error) {
 	log.Printf("🔄 QNG Chain开始处理消息")
 	log.Printf("📝 消息内容: %s", message)

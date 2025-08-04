@@ -556,6 +556,38 @@ func (cm *ContractManager) GetSupportedPairs() []string {
 	return pairs
 }
 
+// GetContractAddressByOperation 根据操作类型获取合约地址
+func (cm *ContractManager) GetContractAddressByOperation(operationType string) (string, error) {
+	switch operationType {
+	case "swap":
+		// 获取 SimpleSwap 合约地址
+		if contract := cm.GetContractInfo("SimpleSwap"); contract != nil {
+			return contract.Address, nil
+		}
+		return "", fmt.Errorf("SimpleSwap contract not found in config")
+	case "stake":
+		// 获取 MTKStaking 合约地址
+		if contract := cm.GetContractInfo("MTKStaking"); contract != nil {
+			return contract.Address, nil
+		}
+		return "", fmt.Errorf("MTKStaking contract not found in config")
+	case "unstake":
+		// 获取 MTKStaking 合约地址
+		if contract := cm.GetContractInfo("MTKStaking"); contract != nil {
+			return contract.Address, nil
+		}
+		return "", fmt.Errorf("MTKStaking contract not found in config")
+	case "claimRewards":
+		// 获取 MTKStaking 合约地址
+		if contract := cm.GetContractInfo("MTKStaking"); contract != nil {
+			return contract.Address, nil
+		}
+		return "", fmt.Errorf("MTKStaking contract not found in config")
+	default:
+		return "", fmt.Errorf("unsupported operation type: %s", operationType)
+	}
+}
+
 // GetWorkflowDescription 获取工作流描述（供 LLM 使用）
 func (cm *ContractManager) GetWorkflowDescription() string {
 	description := fmt.Sprintf(`

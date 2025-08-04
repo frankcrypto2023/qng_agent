@@ -9,6 +9,11 @@ agent:
         max_retries: 3
         retry_delay: 5
         timeout: 300
+    # 执行引擎选择: sop 或 langgraph
+    execution_engine: langgraph  # 可选值: sop, langgraph, auto
+    # auto: 自动选择，优先使用SOP，失败时回退到LangGraph
+    # sop: 强制使用SOP工作流引擎
+    # langgraph: 强制使用LangGraph引擎
 cache:
     driver: memory
     redis:

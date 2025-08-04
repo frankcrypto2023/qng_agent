@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"qng_agent/internal/agent"
 	"qng_agent/internal/config"
+	"qng_agent/internal/roles"
 	"qng_agent/internal/service"
 	"syscall"
 	"time"
@@ -49,6 +50,9 @@ var (
 		},
 	}
 	clients = make(map[string]*WebSocketClient)
+
+	// 角色系统
+	roleManager roles.RoleManager
 )
 
 func main() {
@@ -63,12 +67,22 @@ func main() {
 	// 获取服务注册中心
 	registry := service.GetRegistry()
 
+	// 初始化角色系统
+	log.Println("🔧 初始化角色系统...")
+	roleManager = roles.NewRoleManager()
+	if err := roleManager.InitializeDefaultRoles(); err != nil {
+		log.Printf("Warning: Failed to initialize default roles: %v", err)
+	} else {
+		log.Println("✅ 角色系统初始化完成")
+		log.Printf("📋 已注册角色: %d", len(roleManager.ListRoles()))
+	}
+
 	// 注册MCP服务到注册中心（如果不存在）
 	mcpService := &service.ServiceInfo{
-		Name:    "mcp",
-		Address: "localhost",
-		Port:    9091, // MCP服务端口
-		Status:  "running",
+		Name:     "mcp",
+		Address:  "localhost",
+		Port:     9091, // MCP服务端口
+		Status:   "running",
 		LastSeen: time.Now(),
 		Endpoints: []string{
 			"/api/mcp/call",
@@ -131,12 +145,12 @@ func main() {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
 		}
-		
+
 		c.Next()
 	})
 
@@ -237,10 +251,39 @@ func main() {
 			}
 
 			c.JSON(http.StatusOK, gin.H{
-				"status":      "signature_submitted",
-				"session_id":  req.SessionID,
-				"signature":   req.Signature,
-				"result":      result,
+				"status":     "signature_submitted",
+				"session_id": req.SessionID,
+				"signature":  req.Signature,
+				"result":     result,
+			})
+		})
+
+		// 获取角色信息
+		api.GET("/roles", func(c *gin.Context) {
+			if roleManager == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "role manager not initialized"})
+				return
+			}
+
+			roles := roleManager.ListRoles()
+			var roleProfiles []gin.H
+
+			for _, role := range roles {
+				profile := role.GetProfile()
+				roleProfiles = append(roleProfiles, gin.H{
+					"type":        profile.Type,
+					"name":        profile.Name,
+					"description": profile.Description,
+					"goal":        profile.Goal,
+					"constraints": profile.Constraints,
+					"skills":      profile.Skills,
+				})
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"roles":     roleProfiles,
+				"count":     len(roleProfiles),
+				"timestamp": time.Now().Unix(),
 			})
 		})
 
@@ -309,42 +352,42 @@ func main() {
 				"result":      result,
 			})
 
-					// 通知所有连接的客户端工作流状态更新
-		broadcastWorkflowUpdate(workflowID, "signature_received", 60, "签名已提交，继续执行工作流...")
-	})
-
-	// 配置管理API
-	api.GET("/config", func(c *gin.Context) {
-		// 读取当前配置文件
-		cfg, err := config.Load()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load config: " + err.Error()})
-			return
-		}
-
-		c.JSON(http.StatusOK, cfg)
-	})
-
-	api.PUT("/config", func(c *gin.Context) {
-		var newConfig config.Config
-		if err := c.ShouldBindJSON(&newConfig); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid config format: " + err.Error()})
-			return
-		}
-
-		// 保存配置到文件
-		if err := config.Save(&newConfig); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config: " + err.Error()})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"message": "配置保存成功",
-			"status":  "success",
-			"note":    "某些配置更改可能需要重启服务才能生效",
+			// 通知所有连接的客户端工作流状态更新
+			broadcastWorkflowUpdate(workflowID, "signature_received", 60, "签名已提交，继续执行工作流...")
 		})
-	})
-}
+
+		// 配置管理API
+		api.GET("/config", func(c *gin.Context) {
+			// 读取当前配置文件
+			cfg, err := config.Load()
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load config: " + err.Error()})
+				return
+			}
+
+			c.JSON(http.StatusOK, cfg)
+		})
+
+		api.PUT("/config", func(c *gin.Context) {
+			var newConfig config.Config
+			if err := c.ShouldBindJSON(&newConfig); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid config format: " + err.Error()})
+				return
+			}
+
+			// 保存配置到文件
+			if err := config.Save(&newConfig); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config: " + err.Error()})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"message": "配置保存成功",
+				"status":  "success",
+				"note":    "某些配置更改可能需要重启服务才能生效",
+			})
+		})
+	}
 
 	// 启动HTTP服务器
 	server := &http.Server{

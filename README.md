@@ -1,387 +1,343 @@
-# QNG Agent - 智能区块链工作流系统
+# QNG Agent - SOP vs LangGraph 工作流引擎对比
 
-一个基于LangGraph和MCP协议的智能区块链工作流系统，支持代币兑换、质押等操作，具有用户签名验证和MetaMask集成功能。
+## 概述
 
-## 🚀 功能特性
+QNG Agent 支持两种不同的工作流引擎来处理区块链操作：
 
-### 核心功能
-- **智能工作流执行**: 基于LangGraph的任务分解和执行
-- **LLM集成**: 支持OpenAI、Gemini、Anthropic等多种LLM提供商
-- **MCP协议**: 模块化的MCP服务器架构
-- **Long Polling**: 实时工作流状态更新
-- **用户签名**: MetaMask钱包集成和交易签名
-- **现代化UI**: React前端界面
+1. **SOP (Standard Operating Procedure)** - 基于角色的结构化工作流
+2. **LangGraph** - 基于图的动态工作流
 
-### 工作流支持
-- **代币兑换**: USDT ↔ BTC 等代币兑换
-- **代币质押**: 将代币质押到各种DeFi协议
-- **余额查询**: 查询钱包余额和代币信息
-- **交易历史**: 查看交易记录和状态
+## 架构对比
 
-## 🏗️ 系统架构
+### SOP 架构
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   React前端     │    │   智能体API     │    │   MCP服务器     │
-│   (端口3000)    │◄──►│   (端口8080)    │◄──►│   (端口8081)    │
+│   Role Manager  │    │  Workflow Def   │    │  State Manager  │
+│   (角色管理器)    │    │  (工作流定义)    │    │  (状态管理器)    │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
-                                │                       │
-                                ▼                       ▼
-                       ┌─────────────────┐    ┌─────────────────┐
-                       │   QNG Chain     │    │  MetaMask服务   │
-                       │  (LangGraph)    │    │   (端口8083)    │
-                       └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              SOP Workflow Engine                               │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │
+│  │   Step 1    │  │   Step 2    │  │   Step 3    │          │
+│  │ (Analyze)   │  │ (Risk Mgmt) │  │ (Execute)   │          │
+│  └─────────────┘  └─────────────┘  └─────────────┘          │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### 服务组件
-
-1. **智能体 (Agent)**
-   - 分析用户请求
-   - 调用LLM进行任务分解
-   - 管理工作流执行
-   - 处理用户签名
-
-2. **QNG MCP服务器**
-   - 执行QNG工作流
-   - Long Polling状态更新
-   - 会话管理
-   - 签名验证
-
-3. **MetaMask MCP服务器**
-   - 钱包连接
-   - 交易签名
-   - 余额查询
-   - 网络信息
-
-4. **QNG Chain (LangGraph)**
-   - 任务分解节点
-   - 交易执行节点
-   - 签名验证节点
-   - 结果聚合节点
-
-## 📋 系统要求
-
-### 必需软件
-- **Go 1.21+**: 后端开发
-- **Node.js 18+**: 前端开发
-- **npm 9+**: 包管理
-
-### 可选软件
-- **Git**: 版本控制
-- **Docker**: 容器化部署
-
-## 🛠️ 安装和运行
-
-### 1. 克隆项目
-```bash
-git clone https://github.com/your-org/qng-agent.git
-cd qng-agent
-```
-
-### 2. 配置环境变量
-```bash
-# 复制配置文件
-cp config/config.yaml.example config/config.yaml
-
-# 设置环境变量
-export OPENAI_API_KEY="your-openai-api-key"
-export GEMINI_API_KEY="your-gemini-api-key"
-export ANTHROPIC_API_KEY="your-anthropic-api-key"
-```
-
-### 3. 启动系统
-```bash
-# 给脚本执行权限
-chmod +x start.sh stop.sh
-
-# 启动所有服务
-./start.sh
-
-# 或者分步启动
-./start.sh build    # 构建项目
-./start.sh start    # 启动服务
-```
-
-### 4. 访问系统
-- **前端界面**: http://localhost:3000
-- **智能体API**: http://localhost:8080
-- **MCP服务器**: http://localhost:8081
-
-### 5. 停止系统
-```bash
-./stop.sh
-```
-
-## 🔧 配置说明
-
-### LLM配置
-```yaml
-llm:
-  provider: "openai"  # openai, gemini, anthropic
-  openai:
-    api_key: "${OPENAI_API_KEY}"
-    model: "gpt-4"
-    timeout: 30
-```
-
-### MCP配置
-```yaml
-mcp:
-  mode: "distributed"  # local, distributed
-  qng:
-    enabled: true
-    host: "localhost"
-    port: 8082
-  metamask:
-    enabled: true
-    network: "Ethereum Mainnet"
-```
-
-## 📖 使用指南
-
-### 基本使用流程
-
-1. **连接钱包**
-   - 点击"连接钱包"按钮
-   - 授权MetaMask连接
-
-2. **发送请求**
-   - 在输入框中输入您的需求
-   - 例如："我需要将1MEER兑换成MTK,并去质押"
-
-3. **等待处理**
-   - 系统会分析您的请求
-   - 自动分解为具体任务
-   - 显示处理进度
-
-4. **签名授权**
-   - 如果需要签名，会弹出签名请求
-   - 在MetaMask中确认交易
-   - 等待交易完成
-
-5. **查看结果**
-   - 系统会显示执行结果
-   - 包含交易哈希和状态信息
-
-### 支持的命令示例
+### LangGraph 架构
 
 ```
-✅ 代币兑换
-"我需要将1MEER兑换成MTK,并去质押"
-"帮我用500USDT换ETH"
-
-✅ 代币质押
-"将我的BTC质押到Compound"
-"帮我质押0.1BTC到Aave"
-
-✅ 余额查询
-"查看我的钱包余额"
-"我的USDT余额是多少"
-
-✅ 复合操作
-"将1000USDT兑换成BTC，然后质押到Compound"
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   LLM Client    │    │ Contract Mgr    │    │   RPC Client    │
+│   (LLM客户端)    │    │ (合约管理器)     │    │  (RPC客户端)     │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    LangGraph Engine                            │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │
+│  │   Node 1    │◄─┤   Node 2    │◄─┤   Node 3    │          │
+│  │(Decomposer) │  │(Executor)   │  │(Validator)  │          │
+│  └─────────────┘  └─────────────┘  └─────────────┘          │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## 🔍 API文档
+## 详细对比
 
-### 智能体API
+### 1. 设计理念
 
-#### 处理消息
-```http
-POST /api/agent/process
-Content-Type: application/json
+| 特性 | SOP | LangGraph |
+|------|-----|-----------|
+| **设计理念** | 基于角色的结构化流程 | 基于图的动态流程 |
+| **核心概念** | 标准操作程序 (Standard Operating Procedure) | 语言图 (Language Graph) |
+| **灵感来源** | MetaGPT 的 SOP 概念 | LangChain 的图执行模型 |
+| **流程控制** | 预定义的步骤序列 | 动态节点执行 |
 
-{
-  "message": "我需要将1MEER兑换成MTK,并去质押"
-}
-```
+### 2. 工作流定义
 
-#### 轮询状态
-```http
-GET /api/agent/poll/{session_id}
-```
-
-#### 提交签名
-```http
-POST /api/agent/signature
-Content-Type: application/json
-
-{
-  "session_id": "session_123",
-  "signature": "0x..."
-}
-```
-
-### MCP API
-
-#### 执行工作流
-```http
-POST /api/mcp/qng/execute_workflow
-Content-Type: application/json
-
-{
-  "message": "用户消息"
-}
-```
-
-#### 轮询会话
-```http
-GET /api/mcp/qng/poll_session?session_id={session_id}&timeout=30
-```
-
-## 🧪 开发指南
-
-### 项目结构
-```
-qng-agent/
-├── cmd/                    # 命令行工具
-│   ├── agent/             # 智能体主程序
-│   └── mcp/               # MCP服务器
-├── internal/               # 内部包
-│   ├── agent/             # 智能体逻辑
-│   ├── mcp/               # MCP协议实现
-│   ├── qng/               # QNG链实现
-│   ├── llm/               # LLM客户端
-│   └── config/            # 配置管理
-├── frontend/               # React前端
-│   ├── src/
-│   └── public/
-├── config/                 # 配置文件
-├── logs/                   # 日志文件
-└── scripts/                # 脚本文件
-```
-
-### 开发模式
-```bash
-# 启动开发模式
-./start.sh
-
-# 查看日志
-tail -f logs/agent.log
-tail -f logs/mcp.log
-tail -f logs/frontend.log
-
-# 重启服务
-./start.sh restart
-```
-
-### 添加新的工作流节点
-
-1. **创建节点**
+#### SOP 工作流定义
 ```go
-// internal/qng/nodes/my_node.go
-type MyNode struct{}
-
-func (n *MyNode) Execute(ctx context.Context, input NodeInput) (*NodeOutput, error) {
-    // 实现节点逻辑
-    return &NodeOutput{
-        Data:      result,
-        NextNodes: []string{"next_node"},
-        Completed: false,
-    }, nil
+// 预定义的工作流步骤
+workflow := &WorkflowDefinition{
+    Type: WorkflowCompound,
+    Steps: []WorkflowStep{
+        {
+            ID:     "analyze",
+            Name:   "Analyze Request",
+            Role:   roles.RoleStrategyAnalyst,
+            Input:  []string{},
+            Output: string(protocol.MessageTypeStrategy),
+        },
+        {
+            ID:     "assess_risk",
+            Name:   "Assess Risk",
+            Role:   roles.RoleRiskManager,
+            Input:  []string{"analyze"},
+            Output: string(protocol.MessageTypeRiskAssessment),
+        },
+        // ... 更多步骤
+    },
 }
 ```
 
-2. **注册节点**
+#### LangGraph 工作流定义
 ```go
-// internal/qng/langgraph.go
-func (lg *LangGraph) registerNodes() {
-    lg.nodes["my_node"] = NewMyNode()
+// 动态节点注册
+nodes := []Node{
+    NewTaskDecomposerNode(llm, contractManager),
+    NewSwapExecutorNode(contractManager),
+    NewStakeExecutorNode(contractManager),
+    NewSignatureValidatorNode(rpcClient, txConfig),
+    NewResultAggregatorNode(),
 }
+
+// 图结构构建
+lg.buildGraph()
 ```
 
-3. **更新图结构**
+### 3. 执行流程对比
+
+#### SOP 执行流程
+```
+1. 用户请求 → 2. 工作流类型识别 → 3. 创建执行上下文
+4. 按步骤执行 → 5. 角色分配 → 6. 消息传递
+7. 签名请求 → 8. 用户签名 → 9. 继续下一步
+10. 完成工作流
+```
+
+#### LangGraph 执行流程
+```
+1. 用户请求 → 2. 任务分解节点 → 3. 动态路由
+4. 执行节点 → 5. 状态更新 → 6. 下一个节点
+7. 签名验证 → 8. 结果聚合 → 9. 完成
+```
+
+### 4. 复合操作处理
+
+#### SOP 复合操作
 ```go
-func (lg *LangGraph) buildGraph() {
-    lg.edges["my_node"] = []string{"next_node"}
+// 复合操作处理器
+func (ch *CompoundHandler) ProcessCompoundOperation(ctx context.Context, userRequest string) (*WorkflowResult, error) {
+    // 1. 分析复合请求
+    compoundOp, err := ch.analyzeCompoundRequest(userRequest)
+    
+    // 2. 创建执行上下文
+    execCtx, err := ch.createCompoundExecutionContext(compoundOp, userRequest)
+    
+    // 3. 生成第一个签名请求
+    if compoundOp.CurrentStep < len(compoundOp.Operations) {
+        firstOp := &compoundOp.Operations[compoundOp.CurrentStep]
+        signatureRequest := ch.generateSignatureRequestForOperation(firstOp, compoundOp)
+        // ...
+    }
 }
 ```
 
-## 🐛 故障排除
-
-### 常见问题
-
-1. **服务启动失败**
-   ```bash
-   # 检查端口占用
-   lsof -i :8080
-   lsof -i :8081
-   lsof -i :3000
-   
-   # 强制停止进程
-   ./stop.sh --force
-   ```
-
-2. **LLM调用失败**
-   - 检查API密钥配置
-   - 确认网络连接
-   - 查看日志文件
-
-3. **钱包连接失败**
-   - 确保MetaMask已安装
-   - 检查网络配置
-   - 确认权限设置
-
-4. **工作流执行超时**
-   - 增加超时时间配置
-   - 检查网络延迟
-   - 查看详细日志
-
-### 日志查看
-```bash
-# 实时查看日志
-tail -f logs/agent.log
-tail -f logs/mcp.log
-tail -f logs/frontend.log
-
-# 查看错误日志
-grep "ERROR" logs/*.log
-grep "WARN" logs/*.log
+#### LangGraph 复合操作
+```go
+// 动态节点执行
+func (lg *LangGraph) ExecuteWorkflow(ctx context.Context, message string) (*ProcessResult, error) {
+    // 1. 创建初始状态
+    initialState := graph.State{
+        "input": &NodeInput{
+            Data: map[string]any{"message": message},
+        },
+    }
+    
+    // 2. 执行图
+    result, err := lg.r.Invoke(ctx, initialState)
+    
+    // 3. 处理结果
+    return lg.processResult(result)
+}
 ```
 
-## 🤝 贡献指南
+### 5. 状态管理
 
-### 开发流程
+#### SOP 状态管理
+```go
+type WorkflowExecutionContext struct {
+    ID          string
+    WorkflowDef *WorkflowDefinition
+    StartTime   time.Time
+    State       map[string]*StepState
+    Messages    map[string]*protocol.StructuredMessage
+}
 
-1. **Fork项目**
-2. **创建特性分支**
-   ```bash
-   git checkout -b feature/amazing-feature
-   ```
-3. **提交更改**
-   ```bash
-   git commit -m 'Add amazing feature'
-   ```
-4. **推送到分支**
-   ```bash
-   git push origin feature/amazing-feature
-   ```
-5. **创建Pull Request**
+type StepState struct {
+    StepID    string
+    Status    string
+    StartTime time.Time
+    EndTime   time.Time
+    Error     string
+    Output    *protocol.StructuredMessage
+}
+```
 
-### 代码规范
+#### LangGraph 状态管理
+```go
+type NodeInput struct {
+    Data    map[string]any `json:"data"`
+    Context map[string]any `json:"context"`
+}
 
-- 使用Go标准格式化工具
-- 遵循React最佳实践
-- 添加适当的测试
-- 更新相关文档
+type NodeOutput struct {
+    Data         map[string]any `json:"data"`
+    NextNodes    []string       `json:"next_nodes"`
+    NeedUserAuth bool           `json:"need_user_auth"`
+    AuthRequest  any            `json:"auth_request,omitempty"`
+    Completed    bool           `json:"completed"`
+}
+```
 
-## 📄 许可证
+## 优缺点对比
 
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+### SOP 优势
 
-## 🙏 致谢
+✅ **结构化强**
+- 预定义的工作流步骤
+- 明确的角色分工
+- 可预测的执行路径
 
-- [LangGraph](https://github.com/langchain-ai/langgraph) - 工作流引擎
-- [MCP Protocol](https://modelcontextprotocol.io/) - 模型上下文协议
-- [React](https://reactjs.org/) - 前端框架
-- [MetaMask](https://metamask.io/) - 钱包集成
+✅ **易于理解和维护**
+- 清晰的步骤定义
+- 直观的角色分配
+- 简单的状态管理
 
-## 📞 联系方式
+✅ **适合标准化操作**
+- 复合操作处理
+- 分步签名流程
+- 错误处理和回滚
 
-- **项目主页**: https://github.com/your-org/qng-agent
-- **问题反馈**: https://github.com/your-org/qng-agent/issues
-- **邮箱**: your-email@example.com
+✅ **性能稳定**
+- 无 LLM 依赖
+- 快速执行
+- 资源消耗低
 
----
+### SOP 劣势
 
-**注意**: 这是一个演示项目，请在生产环境中谨慎使用，并确保遵循相关法律法规。 
+❌ **灵活性有限**
+- 固定的工作流结构
+- 难以动态调整
+- 扩展性受限
+
+❌ **智能程度较低**
+- 缺乏 LLM 推理
+- 无法处理复杂逻辑
+- 依赖预定义规则
+
+### LangGraph 优势
+
+✅ **高度灵活**
+- 动态节点执行
+- 可配置的图结构
+- 支持复杂逻辑
+
+✅ **智能推理**
+- LLM 驱动的决策
+- 自然语言理解
+- 上下文感知
+
+✅ **可扩展性强**
+- 易于添加新节点
+- 支持自定义逻辑
+- 模块化设计
+
+✅ **适应性强**
+- 处理复杂场景
+- 动态路由
+- 智能错误处理
+
+### LangGraph 劣势
+
+❌ **复杂性高**
+- 学习曲线陡峭
+- 调试困难
+- 状态管理复杂
+
+❌ **性能开销**
+- LLM 调用延迟
+- 资源消耗较高
+- 执行时间较长
+
+❌ **稳定性挑战**
+- LLM 响应不稳定
+- 错误处理复杂
+- 依赖外部服务
+
+## 使用场景建议
+
+### 选择 SOP 的场景
+
+🟢 **标准化操作**
+- 代币兑换 (swap)
+- 代币质押 (stake)
+- 复合操作 (compound)
+
+🟢 **性能要求高**
+- 高频交易
+- 实时响应
+- 资源受限环境
+
+🟢 **可预测流程**
+- 固定的业务逻辑
+- 明确的步骤序列
+- 简单的错误处理
+
+### 选择 LangGraph 的场景
+
+🟢 **复杂业务逻辑**
+- 多步骤决策
+- 动态路由
+- 智能分析
+
+🟢 **自然语言交互**
+- 用户意图理解
+- 上下文感知
+- 智能推荐
+
+🟢 **创新性功能**
+- 实验性功能
+- 快速原型
+- 灵活扩展
+
+## 实际应用示例
+
+### SOP 复合操作示例
+```
+用户请求: "我要将1MEER兑换成MTK，再将对应的MTK质押"
+
+SOP 处理流程:
+1. 分析请求 → 识别为复合操作
+2. 分解操作 → [swap, stake]
+3. 生成第一个签名请求 → swap 操作
+4. 用户签名 → 验证签名
+5. 生成第二个签名请求 → stake 操作
+6. 用户签名 → 验证签名
+7. 完成复合操作
+```
+
+### LangGraph 智能分析示例
+```
+用户请求: "我想投资一些代币，但担心风险"
+
+LangGraph 处理流程:
+1. 任务分解节点 → 分析用户意图
+2. 风险评估节点 → 评估投资风险
+3. 策略推荐节点 → 生成投资建议
+4. 执行计划节点 → 制定执行计划
+5. 签名验证节点 → 验证用户授权
+6. 结果聚合节点 → 生成最终报告
+```
+
+## 总结
+
+SOP 和 LangGraph 各有其适用场景：
+
+- **SOP** 适合标准化、高性能、可预测的场景
+- **LangGraph** 适合复杂、智能、灵活的场景
+
+在实际应用中，可以根据具体需求选择合适的引擎，或者结合两者的优势来构建混合解决方案。 

@@ -7,10 +7,18 @@ import (
 	"net/http"
 	"qng_agent/internal/config"
 	"qng_agent/internal/mcp"
+	"qng_agent/internal/protocol"
 	"qng_agent/internal/service"
 	"time"
 
 	"github.com/gin-gonic/gin"
+)
+
+// 全局协议系统变量
+var (
+	messagePool *protocol.MessagePool
+	validator   *protocol.Web3MessageValidator
+	serializer  *protocol.MessageSerializer
 )
 
 func main() {
@@ -21,6 +29,13 @@ func main() {
 	if cfg == nil {
 		log.Fatal("Failed to load config")
 	}
+
+	// 初始化协议系统
+	log.Println("🔧 初始化协议系统...")
+	messagePool = protocol.NewMessagePool()
+	validator = protocol.NewWeb3MessageValidator()
+	serializer = protocol.NewMessageSerializer(1024) // 1KB压缩阈值
+	log.Println("✅ 协议系统初始化完成")
 
 	// 获取服务注册中心
 	registry := service.GetRegistry()
@@ -191,6 +206,67 @@ func main() {
 		api.GET("/capabilities", func(c *gin.Context) {
 			capabilities := mcpServer.GetCapabilities()
 			c.JSON(http.StatusOK, gin.H{"capabilities": capabilities})
+		})
+
+		// 处理结构化消息
+		api.POST("/protocol/message", func(c *gin.Context) {
+			var req struct {
+				Type    string                 `json:"type"`
+				Content map[string]interface{} `json:"content"`
+			}
+
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+
+			// 创建结构化消息
+			messageType := protocol.MessageType(req.Type)
+			message := protocol.NewStructuredMessage(messageType, req.Content)
+
+			// 验证消息
+			if err := validator.ValidateMessage(message); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "message validation failed", "details": err.Error()})
+				return
+			}
+
+			// 发布消息到消息池
+			if err := messagePool.Publish(message); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to publish message"})
+				return
+			}
+
+			// 序列化消息
+			serialized, err := serializer.Serialize(message)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to serialize message"})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"message_id": message.ID,
+				"status":     "published",
+				"size":       len(serialized),
+				"timestamp":  message.Timestamp.Unix(),
+			})
+		})
+
+		// 获取消息统计
+		api.GET("/protocol/stats", func(c *gin.Context) {
+			stats := gin.H{
+				"total_messages": len(messagePool.GetMessages([]protocol.MessageType{})),
+				"message_types": map[string]int{
+					"UserRequest":      len(messagePool.GetMessages([]protocol.MessageType{protocol.MessageTypeUserRequest})),
+					"Strategy":         len(messagePool.GetMessages([]protocol.MessageType{protocol.MessageTypeStrategy})),
+					"RiskAssessment":   len(messagePool.GetMessages([]protocol.MessageType{protocol.MessageTypeRiskAssessment})),
+					"Transaction":      len(messagePool.GetMessages([]protocol.MessageType{protocol.MessageTypeTransaction})),
+					"ExecutionResult":  len(messagePool.GetMessages([]protocol.MessageType{protocol.MessageTypeExecutionResult})),
+					"FinalReport":      len(messagePool.GetMessages([]protocol.MessageType{protocol.MessageTypeFinalReport})),
+				},
+				"timestamp": time.Now().Unix(),
+			}
+
+			c.JSON(http.StatusOK, stats)
 		})
 
 		// SSE事件流端点

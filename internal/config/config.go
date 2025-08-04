@@ -77,12 +77,13 @@ type MCPConfig struct {
 // 已移除，因为现在使用外部Chain服务
 
 type AgentConfig struct {
-	Name     string         `mapstructure:"name"`
-	Version  string         `mapstructure:"version"`
-	Workflow WorkflowConfig `mapstructure:"workflow"`
-	Polling  PollingConfig  `mapstructure:"polling"`
-	LLM      LLMConfig      `mapstructure:"llm"`
-	MCP      MCPConfig      `mapstructure:"mcp"`
+	Name            string         `mapstructure:"name"`
+	Version         string         `mapstructure:"version"`
+	ExecutionEngine string         `mapstructure:"execution_engine"` // sop, langgraph, auto
+	Workflow        WorkflowConfig `mapstructure:"workflow"`
+	Polling         PollingConfig  `mapstructure:"polling"`
+	LLM             LLMConfig      `mapstructure:"llm"`
+	MCP             MCPConfig      `mapstructure:"mcp"`
 }
 
 type WorkflowConfig struct {
