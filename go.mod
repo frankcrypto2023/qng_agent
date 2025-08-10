@@ -10,6 +10,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/spf13/viper v1.17.0
+	github.com/go-skynet/go-llama.cpp v0.0.0-20231201185148-2f884bf36c08
 )
 
 require (

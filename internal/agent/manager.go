@@ -181,17 +181,41 @@ type Intent struct {
 }
 
 func (m *Manager) analyzeIntent(ctx context.Context, message string) (*Intent, error) {
-	// 获取所有可用的MCP服务器能力
-	capabilities := m.mcpManager.GetCapabilities()
+	// 获取所有可用的MCP服务器详细能力
+	capabilities := m.mcpManager.GetDetailedCapabilities()
 
-	// 构建能力描述
+	// 构建详细的能力描述
 	var capabilityDescriptions []string
 	for serverName, serverCaps := range capabilities {
 		for _, cap := range serverCaps {
-			capabilityDescriptions = append(capabilityDescriptions, fmt.Sprintf("%s:%s", serverName, cap))
+			// 构建详细的能力描述
+			desc := fmt.Sprintf("🔧 %s.%s: %s", serverName, cap.Name, cap.Description)
+
+			// 添加参数信息
+			if len(cap.Parameters) > 0 {
+				var paramDescs []string
+				for _, param := range cap.Parameters {
+					required := ""
+					if param.Required {
+						required = " (必需)"
+					}
+					paramDescs = append(paramDescs, fmt.Sprintf("    - %s (%s)%s: %s",
+						param.Name, param.Type, required, param.Description))
+				}
+				desc += "\n" + strings.Join(paramDescs, "\n")
+			}
+
+			capabilityDescriptions = append(capabilityDescriptions, desc)
 		}
 	}
 
+	log.Printf("🔍 MCP能力分析:")
+	log.Printf("  - 服务器数量: %d", len(capabilities))
+	log.Printf("  - 能力描述: %v", capabilityDescriptions)
+
+	if len(capabilityDescriptions) == 0 {
+		log.Printf("⚠️  警告: 没有找到任何MCP能力")
+	}
 	// 构建LLM提示
 	prompt := fmt.Sprintf(`分析用户意图并选择合适的MCP工具。
 
@@ -223,7 +247,7 @@ func (m *Manager) analyzeIntent(ctx context.Context, message string) (*Intent, e
 	if err != nil {
 		return nil, fmt.Errorf("LLM intent analysis failed: %w", err)
 	}
-
+	fmt.Println("response: ", response)
 	// 解析LLM响应
 	var intent Intent
 	if err := json.Unmarshal([]byte(response), &intent); err != nil {

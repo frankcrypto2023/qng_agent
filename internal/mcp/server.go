@@ -161,15 +161,45 @@ func (s *Server) GetCapabilities() map[string][]Capability {
 		capabilities["qng"] = []Capability{
 			{
 				Name:        "execute_workflow",
-				Description: "执行QNG工作流",
+				Description: "执行QNG工作流，支持代币兑换、质押等操作",
+				Parameters: []Parameter{
+					{
+						Name:        "message",
+						Type:        "string",
+						Description: "用户请求消息，例如：'我要将1 MEER兑换成MTK，再将对应的MTK质押'",
+						Required:    true,
+					},
+				},
 			},
 			{
 				Name:        "get_session_status",
-				Description: "获取会话状态",
+				Description: "获取工作流会话状态",
+				Parameters: []Parameter{
+					{
+						Name:        "session_id",
+						Type:        "string",
+						Description: "会话ID，用于查询特定会话的状态",
+						Required:    true,
+					},
+				},
 			},
 			{
 				Name:        "submit_signature",
-				Description: "提交签名",
+				Description: "提交用户签名以继续工作流执行",
+				Parameters: []Parameter{
+					{
+						Name:        "session_id",
+						Type:        "string",
+						Description: "会话ID，用于标识要继续的工作流",
+						Required:    true,
+					},
+					{
+						Name:        "signature",
+						Type:        "string",
+						Description: "用户签名，用于授权交易执行",
+						Required:    true,
+					},
+				},
 			},
 		}
 	}
@@ -177,7 +207,7 @@ func (s *Server) GetCapabilities() map[string][]Capability {
 	// MetaMask服务能力
 	if s.metamaskServer != nil {
 		log.Printf("📋 获取MetaMask服务能力")
-		capabilities["metamask"] = s.metamaskServer.GetCapabilities()
+		capabilities["metamask"] = s.metamaskServer.GetDetailedCapabilities()
 	}
 
 	log.Printf("✅ 返回 %d 个服务的能力", len(capabilities))
@@ -260,6 +290,9 @@ func (s *Server) callChainService(ctx context.Context, method string, params map
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	log.Printf("🌐 请求URL: %s%s", chainURL, endpoint)
+	log.Printf("📤 请求数据: %s", string(jsonData))
+
 	req, err := http.NewRequestWithContext(ctx, "POST", chainURL+endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -274,8 +307,11 @@ func (s *Server) callChainService(ctx context.Context, method string, params map
 	}
 	defer resp.Body.Close()
 
+	log.Printf("🔍 响应状态码: %d", resp.StatusCode)
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		log.Printf("❌ Chain服务错误响应: %s", string(body))
 		return nil, fmt.Errorf("chain service error: %s - %s", resp.Status, string(body))
 	}
 

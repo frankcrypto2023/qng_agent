@@ -55,6 +55,41 @@ frontend:
         enabled: true
         url: ws://localhost:8080/ws
 llm:
+    # 本地 LlamaCpp 配置
+    llamacpp:
+        # 可执行文件配置
+        executable_path: "llama-server"      # llama-server 可执行文件路径
+        
+        # 服务配置
+        base_url: "http://localhost:8081"  # llama-server 服务端口
+        server_port: 8081                 # 启动端口
+        
+        # 模型配置
+        model_path: "/root/.cache/modelscope/hub/models/unsloth/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q5_K_M.gguf"  # 模型文件路径
+        
+        # 性能参数
+        context_size: 4096      # 上下文窗口大小
+        threads: 4              # CPU线程数
+        temperature: 0.7        # 温度参数 (0.0-1.0)
+        top_p: 0.9             # Top-P采样
+        top_k: 40              # Top-K采样
+        max_tokens: 2000       # 最大生成令牌数
+        timeout: 60            # 超时时间(秒)
+        
+        # GPU设置 (可选)
+        gpu: true             # 是否使用GPU
+        gpu_threads: 1         # GPU线程数
+        gpu_layers: 0          # GPU层数 (0表示不使用GPU)
+        
+        # 内存设置
+        memory_map: true       # 内存映射
+        memory_f16: false      # 使用FP16精度
+        memory_lock: false     # 锁定内存
+        
+        # 重复惩罚
+        repeat_penalty: 1.1    # 重复惩罚系数
+    
+    # 其他LLM提供商配置
     anthropic:
         api_key: ""
         model: claude-3-5-sonnet-20241022
@@ -75,7 +110,9 @@ llm:
         max_tokens: 2000
         model: gpt-4
         timeout: 30
-    provider: modelscope
+    
+    # 默认使用本地 LlamaCpp
+    provider: llamacpp
 logging:
     file: logs/qng_agent.log
     format: json

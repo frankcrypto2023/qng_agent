@@ -39,6 +39,7 @@ type LLMConfig struct {
 	Gemini     GeminiConfig     `mapstructure:"gemini" yaml:"gemini"`
 	Anthropic  AnthropicConfig  `mapstructure:"anthropic" yaml:"anthropic"`
 	ModelScope ModelScopeConfig `mapstructure:"modelscope" yaml:"modelscope"`
+	LlamaCpp   LlamaCppConfig   `mapstructure:"llamacpp" yaml:"llamacpp"`
 }
 
 type OpenAIConfig struct {
@@ -67,6 +68,27 @@ type ModelScopeConfig struct {
 	BaseURL   string `mapstructure:"base_url"`
 	Timeout   int    `mapstructure:"timeout"`
 	MaxTokens int    `mapstructure:"max_tokens"`
+}
+
+type LlamaCppConfig struct {
+	ExecutablePath string  `mapstructure:"executable_path" yaml:"executable_path"`
+	BaseURL        string  `mapstructure:"base_url" yaml:"base_url"`
+	ServerPort     int     `mapstructure:"server_port" yaml:"server_port"`
+	ModelPath      string  `mapstructure:"model_path" yaml:"model_path"`
+	ContextSize    int     `mapstructure:"context_size" yaml:"context_size"`
+	Threads        int     `mapstructure:"threads" yaml:"threads"`
+	Temperature    float64 `mapstructure:"temperature" yaml:"temperature"`
+	TopP           float64 `mapstructure:"top_p" yaml:"top_p"`
+	TopK           int     `mapstructure:"top_k" yaml:"top_k"`
+	MaxTokens      int     `mapstructure:"max_tokens" yaml:"max_tokens"`
+	Timeout        int     `mapstructure:"timeout" yaml:"timeout"`
+	GPU            bool    `mapstructure:"gpu" yaml:"gpu"`
+	GPUThreads     int     `mapstructure:"gpu_threads" yaml:"gpu_threads"`
+	GPULayers      int     `mapstructure:"gpu_layers" yaml:"gpu_layers"`
+	MemoryMap      bool    `mapstructure:"memory_map" yaml:"memory_map"`
+	MemoryF16      bool    `mapstructure:"memory_f16" yaml:"memory_f16"`
+	MemoryLock     bool    `mapstructure:"memory_lock" yaml:"memory_lock"`
+	RepeatPenalty  float64 `mapstructure:"repeat_penalty" yaml:"repeat_penalty"`
 }
 
 type MCPConfig struct {
@@ -348,6 +370,51 @@ func SaveToFile(cfg *Config, configPath string) error {
 		v.Set("llm.modelscope.max_tokens", cfg.LLM.ModelScope.MaxTokens)
 	}
 
+	// 更新LlamaCpp配置
+	if cfg.LLM.LlamaCpp.BaseURL != "" {
+		v.Set("llm.llamacpp.base_url", cfg.LLM.LlamaCpp.BaseURL)
+	}
+	if cfg.LLM.LlamaCpp.ServerPort > 0 {
+		v.Set("llm.llamacpp.server_port", cfg.LLM.LlamaCpp.ServerPort)
+	}
+	if cfg.LLM.LlamaCpp.ModelPath != "" {
+		v.Set("llm.llamacpp.model_path", cfg.LLM.LlamaCpp.ModelPath)
+	}
+	if cfg.LLM.LlamaCpp.ContextSize > 0 {
+		v.Set("llm.llamacpp.context_size", cfg.LLM.LlamaCpp.ContextSize)
+	}
+	if cfg.LLM.LlamaCpp.Threads > 0 {
+		v.Set("llm.llamacpp.threads", cfg.LLM.LlamaCpp.Threads)
+	}
+	if cfg.LLM.LlamaCpp.Temperature > 0 {
+		v.Set("llm.llamacpp.temperature", cfg.LLM.LlamaCpp.Temperature)
+	}
+	if cfg.LLM.LlamaCpp.TopP > 0 {
+		v.Set("llm.llamacpp.top_p", cfg.LLM.LlamaCpp.TopP)
+	}
+	if cfg.LLM.LlamaCpp.TopK > 0 {
+		v.Set("llm.llamacpp.top_k", cfg.LLM.LlamaCpp.TopK)
+	}
+	if cfg.LLM.LlamaCpp.MaxTokens > 0 {
+		v.Set("llm.llamacpp.max_tokens", cfg.LLM.LlamaCpp.MaxTokens)
+	}
+	if cfg.LLM.LlamaCpp.Timeout > 0 {
+		v.Set("llm.llamacpp.timeout", cfg.LLM.LlamaCpp.Timeout)
+	}
+	v.Set("llm.llamacpp.gpu", cfg.LLM.LlamaCpp.GPU)
+	if cfg.LLM.LlamaCpp.GPUThreads > 0 {
+		v.Set("llm.llamacpp.gpu_threads", cfg.LLM.LlamaCpp.GPUThreads)
+	}
+	if cfg.LLM.LlamaCpp.GPULayers > 0 {
+		v.Set("llm.llamacpp.gpu_layers", cfg.LLM.LlamaCpp.GPULayers)
+	}
+	v.Set("llm.llamacpp.memory_map", cfg.LLM.LlamaCpp.MemoryMap)
+	v.Set("llm.llamacpp.memory_f16", cfg.LLM.LlamaCpp.MemoryF16)
+	v.Set("llm.llamacpp.memory_lock", cfg.LLM.LlamaCpp.MemoryLock)
+	if cfg.LLM.LlamaCpp.RepeatPenalty > 0 {
+		v.Set("llm.llamacpp.repeat_penalty", cfg.LLM.LlamaCpp.RepeatPenalty)
+	}
+
 	// 更新MCP服务器配置
 	for serverName, serverConfig := range cfg.MCP.Servers {
 		v.Set(fmt.Sprintf("mcp.servers.%s.enabled", serverName), serverConfig.Enabled)
@@ -390,6 +457,26 @@ func setDefaults() {
 	viper.SetDefault("llm.modelscope.base_url", "https://api.modelscope.cn/v1")
 	viper.SetDefault("llm.modelscope.timeout", 30)
 	viper.SetDefault("llm.modelscope.max_tokens", 2000)
+
+	// LlamaCpp默认值
+	viper.SetDefault("llm.llamacpp.executable_path", "llama-server")
+	viper.SetDefault("llm.llamacpp.base_url", "http://localhost:8081")
+	viper.SetDefault("llm.llamacpp.server_port", 8081)
+	viper.SetDefault("llm.llamacpp.model_path", "~/models/llama-2-7b-chat.gguf")
+	viper.SetDefault("llm.llamacpp.context_size", 4096)
+	viper.SetDefault("llm.llamacpp.threads", 4)
+	viper.SetDefault("llm.llamacpp.temperature", 0.7)
+	viper.SetDefault("llm.llamacpp.top_p", 0.9)
+	viper.SetDefault("llm.llamacpp.top_k", 40)
+	viper.SetDefault("llm.llamacpp.max_tokens", 2000)
+	viper.SetDefault("llm.llamacpp.timeout", 60)
+	viper.SetDefault("llm.llamacpp.gpu", false)
+	viper.SetDefault("llm.llamacpp.gpu_threads", 1)
+	viper.SetDefault("llm.llamacpp.gpu_layers", 0)
+	viper.SetDefault("llm.llamacpp.memory_map", true)
+	viper.SetDefault("llm.llamacpp.memory_f16", false)
+	viper.SetDefault("llm.llamacpp.memory_lock", false)
+	viper.SetDefault("llm.llamacpp.repeat_penalty", 1.1)
 
 	// MCP服务器默认值
 	viper.SetDefault("mcp.servers.qng.enabled", true)

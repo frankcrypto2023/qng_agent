@@ -18,27 +18,36 @@ type ClientInterface interface {
 	Close() error
 }
 
+// DetailedCapabilityClient 支持详细能力信息的MCP客户端接口
+type DetailedCapabilityClient interface {
+	ClientInterface
+	GetDetailedCapabilities() []Capability
+}
+
 // SSEClient SSE协议客户端
 type SSEClient struct {
-	url     string
-	timeout time.Duration
-	client  *http.Client
+	url          string
+	timeout      time.Duration
+	client       *http.Client
+	capabilities []string
 }
 
 // StdioClient stdio协议客户端
 type StdioClient struct {
-	command []string
-	timeout time.Duration
-	cmd     *exec.Cmd
-	stdin   io.WriteCloser
-	stdout  io.ReadCloser
+	command      []string
+	timeout      time.Duration
+	cmd          *exec.Cmd
+	stdin        io.WriteCloser
+	stdout       io.ReadCloser
+	capabilities []string
 }
 
 // NewSSEClient 创建SSE客户端
-func NewSSEClient(url string, timeout int) *SSEClient {
+func NewSSEClient(url string, timeout int, capabilities []string) *SSEClient {
 	return &SSEClient{
-		url:     url,
-		timeout: time.Duration(timeout) * time.Second,
+		url:          url,
+		timeout:      time.Duration(timeout) * time.Second,
+		capabilities: capabilities,
 		client: &http.Client{
 			Timeout: time.Duration(timeout) * time.Second,
 		},
@@ -46,10 +55,11 @@ func NewSSEClient(url string, timeout int) *SSEClient {
 }
 
 // NewStdioClient 创建stdio客户端
-func NewStdioClient(command []string, timeout int) *StdioClient {
+func NewStdioClient(command []string, timeout int, capabilities []string) *StdioClient {
 	return &StdioClient{
-		command: command,
-		timeout: time.Duration(timeout) * time.Second,
+		command:      command,
+		timeout:      time.Duration(timeout) * time.Second,
+		capabilities: capabilities,
 	}
 }
 
@@ -107,9 +117,7 @@ func (c *SSEClient) Call(ctx context.Context, method string, params map[string]a
 
 // GetCapabilities SSE客户端获取能力
 func (c *SSEClient) GetCapabilities() []string {
-	// 这里可以调用capabilities端点获取实际能力
-	// 暂时返回空，由配置决定
-	return []string{}
+	return c.capabilities
 }
 
 // Close SSE客户端关闭
@@ -159,9 +167,7 @@ func (c *StdioClient) Call(ctx context.Context, method string, params map[string
 
 // GetCapabilities stdio客户端获取能力
 func (c *StdioClient) GetCapabilities() []string {
-	// 这里可以调用capabilities方法获取实际能力
-	// 暂时返回空，由配置决定
-	return []string{}
+	return c.capabilities
 }
 
 // Close stdio客户端关闭

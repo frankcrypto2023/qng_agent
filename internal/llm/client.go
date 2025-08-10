@@ -25,6 +25,8 @@ func NewClient(config config.LLMConfig) (Client, error) {
 		return NewGeminiClient(config.Gemini)
 	case "modelscope":
 		return NewModelScopeClient(config.ModelScope)
+	case "llamacpp":
+		return NewLlamaCppLocalClient(config.LlamaCpp)
 	default:
 		return NewOpenAIClient(config.OpenAI)
 	}

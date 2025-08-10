@@ -496,64 +496,75 @@ func (s *QNGServer) sendSessionUpdate(session *Session, updateType string, data 
 	}
 }
 
-func (s *QNGServer) GetCapabilities() []Capability {
+// GetCapabilities 获取QNG服务器能力（字符串列表）
+func (s *QNGServer) GetCapabilities() []string {
+	return []string{
+		"execute_workflow",
+		"get_session_status",
+		"submit_signature",
+		"poll_session",
+	}
+}
+
+// GetDetailedCapabilities 获取QNG服务器详细能力
+func (s *QNGServer) GetDetailedCapabilities() []Capability {
 	return []Capability{
 		{
 			Name:        "execute_workflow",
-			Description: "执行QNG工作流",
+			Description: "执行QNG工作流，支持代币兑换、质押等操作",
 			Parameters: []Parameter{
 				{
 					Name:        "message",
 					Type:        "string",
-					Description: "用户消息",
+					Description: "用户请求消息，例如：'我要将1 MEER兑换成MTK，再将对应的MTK质押'",
 					Required:    true,
 				},
 			},
 		},
 		{
 			Name:        "get_session_status",
-			Description: "获取会话状态",
+			Description: "获取工作流会话状态",
 			Parameters: []Parameter{
 				{
 					Name:        "session_id",
 					Type:        "string",
-					Description: "会话ID",
+					Description: "会话ID，用于查询特定会话的状态",
 					Required:    true,
 				},
 			},
 		},
 		{
 			Name:        "submit_signature",
-			Description: "提交用户签名",
+			Description: "提交用户签名以继续工作流执行",
 			Parameters: []Parameter{
 				{
 					Name:        "session_id",
 					Type:        "string",
-					Description: "会话ID",
+					Description: "会话ID，用于标识要继续的工作流",
 					Required:    true,
 				},
 				{
 					Name:        "signature",
 					Type:        "string",
-					Description: "用户签名",
+					Description: "用户签名，用于授权交易执行",
 					Required:    true,
 				},
 			},
 		},
 		{
 			Name:        "poll_session",
-			Description: "Long Polling会话更新",
+			Description: "Long Polling会话更新，实时获取会话状态变化",
 			Parameters: []Parameter{
 				{
 					Name:        "session_id",
 					Type:        "string",
-					Description: "会话ID",
+					Description: "会话ID，用于监听特定会话的状态变化",
 					Required:    true,
 				},
 				{
 					Name:        "timeout",
 					Type:        "int",
-					Description: "超时时间（秒）",
+					Description: "超时时间（秒），默认30秒",
 					Required:    false,
 				},
 			},
