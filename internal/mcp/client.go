@@ -63,6 +63,123 @@ func NewStdioClient(command []string, timeout int, capabilities []string) *Stdio
 	}
 }
 
+// GetDetailedCapabilities 获取详细能力信息
+func (c *SSEClient) GetDetailedCapabilities() []Capability {
+	var capabilities []Capability
+
+	// 根据URL和配置的能力列表生成详细能力信息
+	for _, capName := range c.capabilities {
+		capability := Capability{
+			Name:        capName,
+			Description: fmt.Sprintf("%s 功能", capName),
+			Parameters:  []Parameter{},
+		}
+
+		// 根据能力名称添加特定的参数
+		switch capName {
+		case "execute_workflow":
+			capability.Description = "执行QNG工作流，支持代币兑换、质押等操作"
+			capability.Parameters = []Parameter{
+				{
+					Name:        "message",
+					Type:        "string",
+					Description: "用户请求消息，例如：'我要将1 MEER兑换成MTK，再将对应的MTK质押'",
+					Required:    true,
+				},
+			}
+		case "get_session_status":
+			capability.Description = "获取工作流会话状态"
+			capability.Parameters = []Parameter{
+				{
+					Name:        "session_id",
+					Type:        "string",
+					Description: "会话ID，用于查询特定会话的状态",
+					Required:    true,
+				},
+			}
+		case "submit_signature":
+			capability.Description = "提交用户签名以继续工作流执行"
+			capability.Parameters = []Parameter{
+				{
+					Name:        "session_id",
+					Type:        "string",
+					Description: "会话ID，用于标识要继续的工作流",
+					Required:    true,
+				},
+				{
+					Name:        "signature",
+					Type:        "string",
+					Description: "用户签名，用于授权交易执行",
+					Required:    true,
+				},
+			}
+		case "connect_wallet":
+			capability.Description = "连接MetaMask钱包"
+			capability.Parameters = []Parameter{}
+		case "sign_transaction":
+			capability.Description = "签名交易"
+			capability.Parameters = []Parameter{
+				{
+					Name:        "transaction",
+					Type:        "object",
+					Description: "要签名的交易对象",
+					Required:    true,
+				},
+			}
+		case "get_balance":
+			capability.Description = "获取钱包余额"
+			capability.Parameters = []Parameter{
+				{
+					Name:        "address",
+					Type:        "string",
+					Description: "钱包地址",
+					Required:    true,
+				},
+			}
+		case "read_file":
+			capability.Description = "读取文件内容"
+			capability.Parameters = []Parameter{
+				{
+					Name:        "path",
+					Type:        "string",
+					Description: "文件路径",
+					Required:    true,
+				},
+			}
+		case "write_file":
+			capability.Description = "写入文件内容"
+			capability.Parameters = []Parameter{
+				{
+					Name:        "path",
+					Type:        "string",
+					Description: "文件路径",
+					Required:    true,
+				},
+				{
+					Name:        "content",
+					Type:        "string",
+					Description: "文件内容",
+					Required:    true,
+				},
+			}
+		case "list_directory":
+			capability.Description = "列出目录内容"
+			capability.Parameters = []Parameter{
+				{
+					Name:        "path",
+					Type:        "string",
+					Description: "目录路径",
+					Required:    true,
+				},
+			}
+		}
+
+		capabilities = append(capabilities, capability)
+	}
+
+	return capabilities
+}
+
 // Call SSE客户端调用方法
 func (c *SSEClient) Call(ctx context.Context, method string, params map[string]any) (any, error) {
 	// 从URL中提取服务器名称
@@ -124,6 +241,51 @@ func (c *SSEClient) GetCapabilities() []string {
 func (c *SSEClient) Close() error {
 	// SSE客户端不需要特殊清理
 	return nil
+}
+
+// GetDetailedCapabilities 获取详细能力信息
+func (c *StdioClient) GetDetailedCapabilities() []Capability {
+	var capabilities []Capability
+
+	// 根据配置的能力列表生成详细能力信息
+	for _, capName := range c.capabilities {
+		capability := Capability{
+			Name:        capName,
+			Description: fmt.Sprintf("%s 功能", capName),
+			Parameters:  []Parameter{},
+		}
+
+		// 根据能力名称添加特定的参数
+		switch capName {
+		case "connect_wallet":
+			capability.Description = "连接MetaMask钱包"
+			capability.Parameters = []Parameter{}
+		case "sign_transaction":
+			capability.Description = "签名交易"
+			capability.Parameters = []Parameter{
+				{
+					Name:        "transaction",
+					Type:        "object",
+					Description: "要签名的交易对象",
+					Required:    true,
+				},
+			}
+		case "get_balance":
+			capability.Description = "获取钱包余额"
+			capability.Parameters = []Parameter{
+				{
+					Name:        "address",
+					Type:        "string",
+					Description: "钱包地址",
+					Required:    true,
+				},
+			}
+		}
+
+		capabilities = append(capabilities, capability)
+	}
+
+	return capabilities
 }
 
 // Call stdio客户端调用方法

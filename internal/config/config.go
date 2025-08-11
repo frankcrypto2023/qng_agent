@@ -40,6 +40,7 @@ type LLMConfig struct {
 	Anthropic  AnthropicConfig  `mapstructure:"anthropic" yaml:"anthropic"`
 	ModelScope ModelScopeConfig `mapstructure:"modelscope" yaml:"modelscope"`
 	LlamaCpp   LlamaCppConfig   `mapstructure:"llamacpp" yaml:"llamacpp"`
+	Register   RegisterConfig   `mapstructure:"register" yaml:"register"`
 }
 
 type OpenAIConfig struct {
@@ -89,6 +90,12 @@ type LlamaCppConfig struct {
 	MemoryF16      bool    `mapstructure:"memory_f16" yaml:"memory_f16"`
 	MemoryLock     bool    `mapstructure:"memory_lock" yaml:"memory_lock"`
 	RepeatPenalty  float64 `mapstructure:"repeat_penalty" yaml:"repeat_penalty"`
+}
+
+type RegisterConfig struct {
+	CoreAddress     string `mapstructure:"core_address" yaml:"core_address"`
+	ExtendedAddress string `mapstructure:"extended_address" yaml:"extended_address"`
+	Network         string `mapstructure:"network" yaml:"network"`
 }
 
 type MCPConfig struct {

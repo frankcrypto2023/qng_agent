@@ -106,7 +106,7 @@ func NewContractAnalyzer(configPath string) (*ContractAnalyzer, error) {
 // loadContractsConfig 加载合约配置
 func loadContractsConfig(configPath string) (*ContractsConfig, error) {
 	// 使用动态合约加载器
-	loader := NewContractLoader("artifacts", "deployed.json", "contracts")
+	loader := NewContractLoader("artifacts", "deployed.json", "contracts", configPath)
 	config, err := loader.LoadContractsConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load contracts config: %w", err)

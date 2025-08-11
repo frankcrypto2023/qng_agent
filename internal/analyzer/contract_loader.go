@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
+	"qng_agent/internal/config"
 )
 
 // ContractArtifact 合约编译产物结构
@@ -27,6 +28,7 @@ type ContractLoader struct {
 	artifactsDir  string
 	deployedPath  string
 	contractsPath string
+	configPath    string
 	llmAnalyzer   *LLMContractAnalyzer
 }
 
@@ -37,11 +39,12 @@ type LLMContractAnalyzer struct {
 }
 
 // NewContractLoader 创建合约加载器
-func NewContractLoader(artifactsDir, deployedPath, contractsPath string) *ContractLoader {
+func NewContractLoader(artifactsDir, deployedPath, contractsPath, configPath string) *ContractLoader {
 	return &ContractLoader{
 		artifactsDir:  artifactsDir,
 		deployedPath:  deployedPath,
 		contractsPath: contractsPath,
+		configPath:    configPath,
 		llmAnalyzer:   &LLMContractAnalyzer{},
 	}
 }
@@ -55,10 +58,9 @@ func (cl *ContractLoader) LoadContractsConfig() (*ContractsConfig, error) {
 	}
 
 	// 2. 加载网络配置
-	networkConfig := NetworkConfig{
-		ChainID: 8134,
-		Name:    "Custom Network",
-		RPCURL:  "http://47.242.255.132:1234/",
+	networkConfig, err := cl.loadNetworkConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load network config: %w", err)
 	}
 
 	// 3. 加载代币配置
@@ -100,6 +102,29 @@ func (cl *ContractLoader) loadDeployedContracts() (*DeployedContracts, error) {
 	}
 
 	return &deployed, nil
+}
+
+// loadNetworkConfig 加载网络配置
+func (cl *ContractLoader) loadNetworkConfig() (NetworkConfig, error) {
+	// 尝试从配置文件加载
+	if cl.configPath != "" {
+		cfg, err := config.LoadFromFile(cl.configPath)
+		if err == nil && cfg != nil && cfg.LLM.Register.CoreAddress != "" {
+			// 从配置中读取网络信息
+			return NetworkConfig{
+				ChainID: 8134, // 默认ChainID
+				Name:    "Custom Network",
+				RPCURL:  "http://47.242.255.132:1234/", // 使用配置的RPC URL
+			}, nil
+		}
+	}
+
+	// 如果配置文件不存在或无法读取，使用默认配置
+	return NetworkConfig{
+		ChainID: 8134,
+		Name:    "Custom Network",
+		RPCURL:  "http://47.242.255.132:1234/",
+	}, nil
 }
 
 // loadTokenConfigs 加载代币配置

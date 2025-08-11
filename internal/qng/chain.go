@@ -2,8 +2,10 @@ package qng
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"qng_agent/internal/config"
 	"qng_agent/internal/contracts"
 	"qng_agent/internal/llm"
@@ -23,6 +25,7 @@ type ChainConfig struct {
 	LangGraph   LangGraphConfig
 	LLM         LLMConfig
 	Chain       ChainSubConfig
+	Register    RegisterConfig
 }
 
 // ChainSubConfig 链子配置
@@ -55,6 +58,7 @@ type LLMConfig struct {
 	Gemini     GeminiConfig
 	Anthropic  AnthropicConfig
 	ModelScope ModelScopeConfig
+	Register   RegisterConfig
 }
 
 // OpenAIConfig OpenAI配置
@@ -89,10 +93,16 @@ type ModelScopeConfig struct {
 	MaxTokens int
 }
 
+type RegisterConfig struct {
+	CoreAddress     string
+	ExtendedAddress string
+	Network         string
+}
+
 type Chain struct {
 	config          ChainConfig
 	llmClient       llm.Client
-	contractManager *contracts.ContractManager
+	contractManager *contracts.RegisterContractManager
 	rpcClient       *rpc.Client
 	langGraph       *LangGraph
 	mu              sync.RWMutex
@@ -163,11 +173,39 @@ func NewChain(chainConfig ChainConfig) *Chain {
 		}
 	}
 
-	// 创建合约管理器
-	contractManager, err := contracts.NewContractManager("config/contracts.json")
+	// 创建基于注册中心的合约管理器
+	registerCoreAddress := chainConfig.LLM.Register.CoreAddress
+	registerExtendedAddress := chainConfig.LLM.Register.ExtendedAddress
+
+	if registerCoreAddress == "" || registerExtendedAddress == "" {
+		log.Printf("⚠️  Register合约地址未配置，尝试从deployed.json读取")
+		// 尝试从deployed.json读取地址
+		if data, err := os.ReadFile("deployed.json"); err == nil {
+			var deployed map[string]string
+			if json.Unmarshal(data, &deployed) == nil {
+				registerCoreAddress = deployed["RegisterCore"]
+				registerExtendedAddress = deployed["RegisterExtended"]
+				log.Printf("📋 从deployed.json读取到Register地址:")
+				log.Printf("   - Core: %s", registerCoreAddress)
+				log.Printf("   - Extended: %s", registerExtendedAddress)
+			}
+		}
+	}
+
+	// 从配置读取RPC URL
+	rpcURL := "http://47.242.255.132:1234/" // 使用配置中的RPC URL
+	log.Printf("🔗 使用RPC URL: %s", rpcURL)
+
+	contractManager, err := contracts.NewRegisterContractManager("", registerCoreAddress, registerExtendedAddress, rpcURL)
 	if err != nil {
-		log.Printf("⚠️  无法创建合约管理器: %v", err)
+		log.Printf("⚠️  无法创建注册中心合约管理器: %v", err)
 		contractManager = nil
+	} else {
+		log.Printf("✅ 注册中心合约管理器创建成功")
+		// 显示注册中心统计信息
+		if stats := contractManager.GetRegistryStats(); stats != nil {
+			log.Printf("📊 注册中心统计: %+v", stats)
+		}
 	}
 
 	// 创建RPC客户端

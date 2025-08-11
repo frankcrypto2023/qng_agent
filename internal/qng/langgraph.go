@@ -25,7 +25,7 @@ func getString(m map[string]any, key string) string {
 type LangGraph struct {
 	nodes           map[string]Node
 	llm             llm.Client
-	contractManager *contracts.ContractManager
+	contractManager *contracts.RegisterContractManager
 	rpcClient       *rpc.Client
 	txConfig        TransactionConfig
 
@@ -56,7 +56,7 @@ type NodeOutput struct {
 }
 
 // NewLangGraph 创建LangGraph实例
-func NewLangGraph(llmClient llm.Client, contractManager *contracts.ContractManager, rpcClient *rpc.Client, txConfig TransactionConfig) *LangGraph {
+func NewLangGraph(llmClient llm.Client, contractManager *contracts.RegisterContractManager, rpcClient *rpc.Client, txConfig TransactionConfig) *LangGraph {
 	lg := &LangGraph{
 		nodes:           make(map[string]Node),
 		llm:             llmClient,
@@ -76,10 +76,19 @@ func NewLangGraph(llmClient llm.Client, contractManager *contracts.ContractManag
 
 // registerNodes 注册所有节点
 func (lg *LangGraph) registerNodes() {
+	// 创建节点
+	taskDecomposer := NewTaskDecomposerNode(lg.llm, lg.contractManager.ContractManager)
+	swapExecutor := NewSwapExecutorNode(lg.contractManager.ContractManager)
+	stakeExecutor := NewStakeExecutorNode(lg.contractManager.ContractManager)
+
+	// 设置注册管理器
+	taskDecomposer.registerManager = lg.contractManager
+	swapExecutor.registerManager = lg.contractManager
+
 	nodes := []Node{
-		NewTaskDecomposerNode(lg.llm, lg.contractManager),    // 任务分解节点
-		NewSwapExecutorNode(lg.contractManager),              // 交易执行节点
-		NewStakeExecutorNode(lg.contractManager),             // 质押执行节点
+		taskDecomposer, // 任务分解节点
+		swapExecutor,   // 交易执行节点
+		stakeExecutor,  // 质押执行节点
 		NewSignatureValidatorNode(lg.rpcClient, lg.txConfig), // 签名验证节点
 		NewResultAggregatorNode(),                            // 结果聚合节点
 	}

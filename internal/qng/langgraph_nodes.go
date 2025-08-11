@@ -17,12 +17,14 @@ import (
 type TaskDecomposerNode struct {
 	llmClient       llm.Client
 	contractManager *contracts.ContractManager
+	registerManager *contracts.RegisterContractManager // 添加注册管理器
 }
 
 func NewTaskDecomposerNode(llmClient llm.Client, contractManager *contracts.ContractManager) *TaskDecomposerNode {
 	return &TaskDecomposerNode{
 		llmClient:       llmClient,
 		contractManager: contractManager,
+		registerManager: nil, // 暂时设为nil，稍后通过其他方式设置
 	}
 }
 
@@ -49,6 +51,7 @@ func (n *TaskDecomposerNode) Execute(ctx context.Context, input NodeInput) (*Nod
 	var supportedTokens []string
 	var supportedPairs []string
 	var contractInfo string
+	var registeredContracts []map[string]interface{}
 
 	if n.contractManager != nil {
 		// 获取支持的代币
@@ -60,14 +63,55 @@ func (n *TaskDecomposerNode) Execute(ctx context.Context, input NodeInput) (*Nod
 		// 获取合约信息
 		contractInfo = n.contractManager.GetWorkflowDescription()
 
+		// 获取注册中心的合约信息
+		if n.registerManager != nil {
+			allContracts := n.registerManager.ListAllContractsFromRegistry()
+			for _, contract := range allContracts {
+				registeredContracts = append(registeredContracts, map[string]interface{}{
+					"id":          contract.AgentID,
+					"name":        contract.Name,
+					"type":        contract.Type,
+					"address":     contract.Address,
+					"services":    contract.Services,
+					"protocols":   contract.Protocols,
+					"description": contract.Description,
+				})
+			}
+		}
+
 		log.Printf("📋 支持的代币: %v", supportedTokens)
 		log.Printf("📋 支持的兑换对: %v", supportedPairs)
 		log.Printf("📋 合约信息: %s", contractInfo)
+		log.Printf("📋 注册的合约: %+v", registeredContracts)
 	} else {
 		// 默认配置
 		supportedTokens = []string{"MEER", "MTK"}
 		supportedPairs = []string{"MEER ↔ MTK"}
 		contractInfo = "SimpleSwap合约支持MEER和MTK之间的兑换"
+		registeredContracts = []map[string]interface{}{
+			{
+				"id":          "simpleswap",
+				"name":        "SimpleSwap",
+				"type":        "DEX",
+				"services":    []string{"Swap", "DEX"},
+				"description": "Simple token swap contract",
+			},
+		}
+	}
+
+	// 构建注册合约信息
+	registeredContractsInfo := ""
+	for _, contract := range registeredContracts {
+		registeredContractsInfo += fmt.Sprintf(`
+- ID: %s
+  名称: %s
+  类型: %s
+  地址: %s
+  服务: %v
+  协议: %v
+  描述: %s`,
+			contract["id"], contract["name"], contract["type"], contract["address"],
+			contract["services"], contract["protocols"], contract["description"])
 	}
 
 	// 构建LLM提示
@@ -75,6 +119,9 @@ func (n *TaskDecomposerNode) Execute(ctx context.Context, input NodeInput) (*Nod
 你是一个区块链DeFi操作分析助手。请仔细分析用户的中文请求，并分解为具体的执行步骤。
 
 系统配置信息：
+%s
+
+注册的合约信息：
 %s
 
 支持的操作类型：
@@ -86,7 +133,7 @@ func (n *TaskDecomposerNode) Execute(ctx context.Context, input NodeInput) (*Nod
 
 用户请求: %s
 
-请根据用户的实际请求内容，准确识别代币名称和数量，按以下格式返回分解结果：
+请根据用户的实际请求内容，准确识别代币名称和数量，并从注册的合约中选择合适的合约ID，按以下格式返回分解结果：
 
 {
   "tasks": [
@@ -96,6 +143,7 @@ func (n *TaskDecomposerNode) Execute(ctx context.Context, input NodeInput) (*Nod
       "from_token": "MEER", 
       "to_token": "MTK",
       "amount": "1",
+      "contract_id": "simpleswap",
       "dependency_tx_id": null,
       "description": "兑换1 MEER为MTK"
     },
@@ -123,7 +171,7 @@ func (n *TaskDecomposerNode) Execute(ctx context.Context, input NodeInput) (*Nod
 9. 独立任务的dependency_tx_id设置为null
 10. 必须包含所有必要字段：id, type, from_token, to_token, amount, dependency_tx_id, description
 11. 对于stake任务，使用token字段而不是from_token/to_token
-
+12. 对于不存在的token或者其他合约，请提示用户，并给出建议的合约名称
 CRITICAL: 你必须只返回有效的JSON格式，不要包含任何其他文字、解释或说明。确保JSON格式完全正确，可以被直接解析。
 `, contractInfo, supportedTokens, supportedPairs, userMessage, supportedTokens, supportedPairs)
 
@@ -211,8 +259,8 @@ func (n *TaskDecomposerNode) parseTasksFromResponse(response string, originalUse
 							toToken, _ := enhancedTask["to_token"].(string)
 
 							// 检查是否为支持的代币对
-							if !n.isSupportedTokenPair(fromToken, toToken) {
-								log.Printf("⚠️  检测到不支持的代币对: %s -> %s，标记为无效", fromToken, toToken)
+							if supported, errorMsg := n.isSupportedTokenPair(fromToken, toToken); !supported {
+								log.Printf("⚠️  %s", errorMsg)
 								hasUnsupportedTokens = true
 								break
 							}
@@ -222,7 +270,21 @@ func (n *TaskDecomposerNode) parseTasksFromResponse(response string, originalUse
 					}
 				}
 
-				if !hasUnsupportedTokens && allTasksValid {
+				if hasUnsupportedTokens {
+					log.Printf("❌ 检测到不支持的代币，返回错误信息")
+					// 返回包含错误信息的特殊任务
+					return []map[string]any{
+						{
+							"id":          "error_1",
+							"type":        "error",
+							"error":       "检测到不支持的代币",
+							"description": "当前系统只支持 MEER 和 MTK 之间的兑换",
+							"message":     "❌ 抱歉，当前系统不支持您请求的代币。\n\n💡 建议：\n- 当前系统只支持 MEER 和 MTK 之间的兑换\n- 您可以尝试：兑换 1 MEER 为 MTK，然后质押 MTK\n- 或者直接质押您现有的 MTK",
+						},
+					}
+				}
+
+				if allTasksValid {
 					log.Printf("✅ 所有任务验证通过")
 					return taskList
 				} else {
@@ -294,11 +356,11 @@ func (n *TaskDecomposerNode) enhanceTask(task map[string]any, index int) map[str
 		fromToken, _ := enhanced["from_token"].(string)
 		toToken, _ := enhanced["to_token"].(string)
 
-		// 如果是不支持的代币对，纠正为 MEER/MTK
-		if !n.isSupportedTokenPair(fromToken, toToken) {
-			log.Printf("⚠️  检测到不支持的代币对: %s -> %s，纠正为 MEER -> MTK", fromToken, toToken)
-			enhanced["from_token"] = "MEER"
-			enhanced["to_token"] = "MTK"
+		// 如果是不支持的代币对，标记为错误
+		if supported, errorMsg := n.isSupportedTokenPair(fromToken, toToken); !supported {
+			log.Printf("⚠️  %s", errorMsg)
+			enhanced["error"] = errorMsg
+			enhanced["unsupported_tokens"] = true
 		}
 
 		// 如果金额明显过大（比如1000），可能是LLM理解错误，纠正为1
@@ -320,7 +382,7 @@ func (n *TaskDecomposerNode) enhanceTask(task map[string]any, index int) map[str
 }
 
 // isSupportedTokenPair 检查是否为支持的代币对
-func (n *TaskDecomposerNode) isSupportedTokenPair(fromToken, toToken string) bool {
+func (n *TaskDecomposerNode) isSupportedTokenPair(fromToken, toToken string) (bool, string) {
 	supportedPairs := [][]string{
 		{"MEER", "MTK"},
 		{"MTK", "MEER"},
@@ -328,11 +390,39 @@ func (n *TaskDecomposerNode) isSupportedTokenPair(fromToken, toToken string) boo
 
 	for _, pair := range supportedPairs {
 		if pair[0] == fromToken && pair[1] == toToken {
-			return true
+			return true, ""
 		}
 	}
 
-	log.Printf("📋 支持的代币对: MEER↔MTK，当前: %s->%s", fromToken, toToken)
+	// 检查是否有不支持的代币
+	supportedTokens := []string{"MEER", "MTK"}
+	unsupportedTokens := []string{}
+
+	if !contains(supportedTokens, fromToken) {
+		unsupportedTokens = append(unsupportedTokens, fromToken)
+	}
+	if !contains(supportedTokens, toToken) {
+		unsupportedTokens = append(unsupportedTokens, toToken)
+	}
+
+	errorMsg := ""
+	if len(unsupportedTokens) > 0 {
+		errorMsg = fmt.Sprintf("不支持的代币: %v。当前系统只支持: %v", unsupportedTokens, supportedTokens)
+	} else {
+		errorMsg = fmt.Sprintf("不支持的代币对: %s->%s。当前系统只支持: MEER↔MTK", fromToken, toToken)
+	}
+
+	log.Printf("📋 %s", errorMsg)
+	return false, errorMsg
+}
+
+// contains 检查字符串是否在切片中
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
 	return false
 }
 
@@ -347,6 +437,32 @@ func (n *TaskDecomposerNode) fallbackParseFromText(userMessage string) []map[str
 	// 检测兑换任务
 	if strings.Contains(lowerMessage, "swap") || strings.Contains(lowerMessage, "兑换") {
 		log.Printf("✅ 检测到兑换任务")
+
+		// 检查是否包含不支持的代币
+		unsupportedTokens := []string{"usdt", "btc", "eth", "bnb", "ada", "dot", "link", "uni", "aave", "comp"}
+		foundUnsupported := false
+		var unsupportedToken string
+
+		for _, token := range unsupportedTokens {
+			if strings.Contains(lowerMessage, token) {
+				foundUnsupported = true
+				unsupportedToken = strings.ToUpper(token)
+				break
+			}
+		}
+
+		if foundUnsupported {
+			log.Printf("❌ 检测到不支持的代币: %s", unsupportedToken)
+			return []map[string]any{
+				{
+					"id":          "error_1",
+					"type":        "error",
+					"error":       fmt.Sprintf("不支持的代币: %s", unsupportedToken),
+					"description": "当前系统只支持 MEER 和 MTK 之间的兑换",
+					"message":     fmt.Sprintf("❌ 抱歉，当前系统不支持 %s 代币。\n\n💡 建议：\n- 当前系统只支持 MEER 和 MTK 之间的兑换\n- 您可以尝试：兑换 1 MEER 为 MTK，然后质押 MTK\n- 或者直接质押您现有的 MTK", unsupportedToken),
+				},
+			}
+		}
 
 		// 默认值
 		fromToken := "MEER"
@@ -456,6 +572,32 @@ func (n *TaskDecomposerNode) simpleTaskDecomposition(message string) []map[strin
 
 	if strings.Contains(lowerMsg, "兑换") || strings.Contains(lowerMsg, "swap") {
 		log.Printf("✅ 检测到兑换/swap任务")
+
+		// 检查是否包含不支持的代币
+		unsupportedTokens := []string{"usdt", "btc", "eth", "bnb", "ada", "dot", "link", "uni", "aave", "comp"}
+		foundUnsupported := false
+		var unsupportedToken string
+
+		for _, token := range unsupportedTokens {
+			if strings.Contains(lowerMsg, token) {
+				foundUnsupported = true
+				unsupportedToken = strings.ToUpper(token)
+				break
+			}
+		}
+
+		if foundUnsupported {
+			log.Printf("❌ 检测到不支持的代币: %s", unsupportedToken)
+			return []map[string]any{
+				{
+					"id":          "error_1",
+					"type":        "error",
+					"error":       fmt.Sprintf("不支持的代币: %s", unsupportedToken),
+					"description": "当前系统只支持 MEER 和 MTK 之间的兑换",
+					"message":     fmt.Sprintf("❌ 抱歉，当前系统不支持 %s 代币。\n\n💡 建议：\n- 当前系统只支持 MEER 和 MTK 之间的兑换\n- 您可以尝试：兑换 1 MEER 为 MTK，然后质押 MTK\n- 或者直接质押您现有的 MTK", unsupportedToken),
+				},
+			}
+		}
 
 		// 解析代币信息
 		fromToken := "MEER"
@@ -582,12 +724,19 @@ func (n *TaskDecomposerNode) determineNextNodes(tasks []map[string]any) []string
 // SwapExecutorNode 交易执行节点
 type SwapExecutorNode struct {
 	contractManager *contracts.ContractManager
+	registerManager *contracts.RegisterContractManager // 添加注册管理器
 }
 
 func NewSwapExecutorNode(contractManager *contracts.ContractManager) *SwapExecutorNode {
 	return &SwapExecutorNode{
 		contractManager: contractManager,
+		registerManager: nil, // 稍后通过SetRegisterManager设置
 	}
+}
+
+// SetRegisterManager 设置注册管理器
+func (n *SwapExecutorNode) SetRegisterManager(registerManager *contracts.RegisterContractManager) {
+	n.registerManager = registerManager
 }
 
 func (n *SwapExecutorNode) GetName() string {
@@ -745,10 +894,26 @@ func (n *SwapExecutorNode) buildSwapRequestFromTask(task map[string]any, data ma
 		log.Printf("🔄 使用前一个任务的输出金额: %s", amount)
 	}
 
+	// 获取合约ID（可选）
+	contractID, _ := task["contract_id"].(string)
+
+	// 如果有合约ID，从注册中心获取合约名称
+	var contractName string
+	if contractID != "" && n.registerManager != nil {
+		contractInfo := n.registerManager.GetContractInfoFromRegistry(contractID)
+		if contractInfo != nil {
+			contractName = contractInfo.Name
+			log.Printf("📋 根据合约ID %s 找到合约: %s", contractID, contractName)
+		} else {
+			log.Printf("⚠️  未找到合约ID: %s", contractID)
+		}
+	}
+
 	return &contracts.SwapRequest{
-		FromToken: fromToken,
-		ToToken:   toToken,
-		Amount:    amount,
+		FromToken:    fromToken,
+		ToToken:      toToken,
+		Amount:       amount,
+		ContractName: contractName,
 	}, nil
 }
 
@@ -1277,6 +1442,30 @@ func (n *ResultAggregatorNode) GetType() string {
 func (n *ResultAggregatorNode) Execute(ctx context.Context, input NodeInput) (*NodeOutput, error) {
 	log.Printf("🔄 结果聚合节点开始执行")
 	log.Printf("📊 输入数据: %+v", input.Data)
+
+	// 检查是否有错误任务
+	if tasks, ok := input.Data["tasks"].([]map[string]any); ok {
+		for _, task := range tasks {
+			if taskType, exists := task["type"].(string); exists && taskType == "error" {
+				log.Printf("❌ 检测到错误任务: %+v", task)
+				// 返回错误信息
+				return &NodeOutput{
+					Data: map[string]any{
+						"status":       "error",
+						"error":        task["error"],
+						"message":      task["message"],
+						"description":  task["description"],
+						"timestamp":    time.Now(),
+						"workflow_id":  input.Context["workflow_id"],
+						"session_id":   input.Context["session_id"],
+						"user_message": input.Data["user_message"],
+					},
+					NextNodes: []string{}, // 终止节点
+					Completed: true,
+				}, nil
+			}
+		}
+	}
 
 	// 聚合所有执行结果
 	result := map[string]any{

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"qng_agent/internal/config"
+	"strings"
 )
 
 type Client interface {
@@ -46,9 +47,61 @@ func (c *MockClient) Chat(ctx context.Context, messages []Message) (string, erro
 	}
 
 	lastMessage := messages[len(messages)-1].Content
+	fmt.Printf("🔍 MockClient收到消息: %s\n", lastMessage)
+
+	// 检查是否包含不支持的代币
+	unsupportedTokens := []string{"usdt", "btc", "eth", "bnb", "ada", "dot", "link", "uni", "aave", "comp"}
+	fmt.Printf("🔍 检查不支持的代币: %v\n", unsupportedTokens)
+	
+	for _, token := range unsupportedTokens {
+		fmt.Printf("🔍 检查代币 '%s' 是否在消息中...\n", token)
+		if contains(lastMessage, token) {
+			fmt.Printf("❌ 检测到不支持的代币: %s\n", token)
+			unsupportedToken := strings.ToUpper(token)
+			return fmt.Sprintf(`{
+				"intent_type": "error",
+				"error": "不支持的代币: %s",
+				"message": "抱歉，当前系统不支持 %s 代币。当前系统只支持 MEER 和 MTK 之间的兑换。",
+				"recommendations": ["尝试兑换 MEER 为 MTK", "直接质押 MTK"],
+				"tasks": [
+					{
+						"id": "error_1",
+						"type": "error",
+						"error": "不支持的代币: %s",
+						"description": "当前系统只支持 MEER 和 MTK 之间的兑换",
+						"message": "❌ 抱歉，当前系统不支持 %s 代币。\\n\\n💡 建议：\\n- 当前系统只支持 MEER 和 MTK 之间的兑换\\n- 您可以尝试：兑换 1 MEER 为 MTK，然后质押 MTK\\n- 或者直接质押您现有的 MTK"
+					}
+				]
+			}`, unsupportedToken, unsupportedToken, unsupportedToken, unsupportedToken), nil
+		}
+	}
+	fmt.Printf("✅ 未检测到不支持的代币\n")
 
 	// 根据消息内容返回模拟响应
+	// 注意：不支持的代币检查必须在其他检查之前
 	if contains(lastMessage, "兑换") && contains(lastMessage, "质押") {
+		// 再次检查是否包含不支持的代币（双重保险）
+		for _, token := range unsupportedTokens {
+			if contains(lastMessage, token) {
+				unsupportedToken := strings.ToUpper(token)
+				return fmt.Sprintf(`{
+					"intent_type": "error",
+					"error": "不支持的代币: %s",
+					"message": "抱歉，当前系统不支持 %s 代币。当前系统只支持 MEER 和 MTK 之间的兑换。",
+					"recommendations": ["尝试兑换 MEER 为 MTK", "直接质押 MTK"],
+					"tasks": [
+						{
+							"id": "error_1",
+							"type": "error",
+							"error": "不支持的代币: %s",
+							"description": "当前系统只支持 MEER 和 MTK 之间的兑换",
+							"message": "❌ 抱歉，当前系统不支持 %s 代币。\\n\\n💡 建议：\\n- 当前系统只支持 MEER 和 MTK 之间的兑换\\n- 您可以尝试：兑换 1 MEER 为 MTK，然后质押 MTK\\n- 或者直接质押您现有的 MTK"
+						}
+					]
+				}`, unsupportedToken, unsupportedToken, unsupportedToken, unsupportedToken), nil
+			}
+		}
+		
 		return `{
 			"intent_type": "compound",
 			"actions": ["兑换MEER为MTK", "质押MTK"],

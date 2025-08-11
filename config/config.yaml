@@ -86,9 +86,15 @@ llm:
         memory_f16: false      # 使用FP16精度
         memory_lock: false     # 锁定内存
         
-        # 重复惩罚
-        repeat_penalty: 1.1    # 重复惩罚系数
-    
+            # 重复惩罚
+    repeat_penalty: 1.1    # 重复惩罚系数
+
+    # Register合约配置
+    register:
+        core_address: "0x8CEC927eb5800Fa231c9a3bA6935A123EC19e881"
+        extended_address: "0x5788Bfb8D705a17C529E65DdD7E9619EE939eFD6"
+        network: "customnet"
+
     # 其他LLM提供商配置
     anthropic:
         api_key: ""
@@ -112,7 +118,7 @@ llm:
         timeout: 30
     
     # 默认使用本地 LlamaCpp
-    provider: llamacpp
+    provider: modelscope
 logging:
     file: logs/qng_agent.log
     format: json

@@ -189,7 +189,7 @@ func (m *Manager) analyzeIntent(ctx context.Context, message string) (*Intent, e
 	for serverName, serverCaps := range capabilities {
 		for _, cap := range serverCaps {
 			// 构建详细的能力描述
-			desc := fmt.Sprintf("🔧 %s.%s: %s", serverName, cap.Name, cap.Description)
+			desc := fmt.Sprintf("服务名:%s 能力描述: %s ; %s", serverName, cap.Name, cap.Description)
 
 			// 添加参数信息
 			if len(cap.Parameters) > 0 {
@@ -251,6 +251,7 @@ func (m *Manager) analyzeIntent(ctx context.Context, message string) (*Intent, e
 	// 解析LLM响应
 	var intent Intent
 	if err := json.Unmarshal([]byte(response), &intent); err != nil {
+		fmt.Println("解析失败: ", err)
 		// 如果解析失败，使用简单的关键词匹配作为后备
 		return m.fallbackIntentAnalysis(message), nil
 	}

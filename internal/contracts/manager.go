@@ -7,24 +7,24 @@ import (
 	"log"
 	"math/big"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
-	"regexp"
 )
 
 // ContractManager 合约管理器
 type ContractManager struct {
-	config     *ContractConfig
-	artifacts  map[string]*ContractArtifact
+	config    *ContractConfig
+	artifacts map[string]*ContractArtifact
 }
 
 // ContractConfig 合约配置结构
 type ContractConfig struct {
-	Version   string                        `json:"version"`
-	Network   NetworkConfig                 `json:"network"`
-	Tokens    map[string]TokenConfig        `json:"tokens"`
-	Contracts map[string]ContractInfo       `json:"contracts"`
-	Workflows map[string]WorkflowConfig     `json:"workflows"`
+	Version   string                    `json:"version"`
+	Network   NetworkConfig             `json:"network"`
+	Tokens    map[string]TokenConfig    `json:"tokens"`
+	Contracts map[string]ContractInfo   `json:"contracts"`
+	Workflows map[string]WorkflowConfig `json:"workflows"`
 }
 
 // NetworkConfig 网络配置
@@ -47,12 +47,12 @@ type TokenConfig struct {
 
 // ContractInfo 合约信息
 type ContractInfo struct {
-	Name         string                    `json:"name"`
-	Address      string                    `json:"address"`
-	ArtifactPath string                    `json:"artifactPath"`
-	Type         string                    `json:"type"`
-	Description  string                    `json:"description"`
-	Functions    map[string]FunctionInfo   `json:"functions"`
+	Name           string                  `json:"name"`
+	Address        string                  `json:"address"`
+	ArtifactPath   string                  `json:"artifactPath"`
+	Type           string                  `json:"type"`
+	Description    string                  `json:"description"`
+	Functions      map[string]FunctionInfo `json:"functions"`
 	SupportedPairs []SwapPair              `json:"supportedPairs,omitempty"`
 }
 
@@ -108,10 +108,11 @@ type TransactionData struct {
 
 // SwapRequest 兑换请求
 type SwapRequest struct {
-	FromToken string
-	ToToken   string
-	Amount    string
-	UserAddress string
+	FromToken    string
+	ToToken      string
+	Amount       string
+	UserAddress  string
+	ContractName string // 指定使用的合约名称，如果为空则自动选择
 }
 
 // StakeRequest 质押请求
@@ -126,21 +127,21 @@ type StakeRequest struct {
 func NewContractManager(configPath string) (*ContractManager, error) {
 	log.Printf("🔧 初始化合约管理器")
 	log.Printf("📋 配置文件路径: %s", configPath)
-	
+
 	manager := &ContractManager{
 		artifacts: make(map[string]*ContractArtifact),
 	}
-	
+
 	// 加载配置文件
 	if err := manager.LoadConfig(configPath); err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
-	
+
 	// 加载合约 ABI
 	if err := manager.LoadArtifacts(); err != nil {
 		return nil, fmt.Errorf("failed to load artifacts: %w", err)
 	}
-	
+
 	log.Printf("✅ 合约管理器初始化完成")
 	return manager, nil
 }
@@ -148,60 +149,60 @@ func NewContractManager(configPath string) (*ContractManager, error) {
 // LoadConfig 加载合约配置
 func (cm *ContractManager) LoadConfig(configPath string) error {
 	log.Printf("📋 加载合约配置: %s", configPath)
-	
+
 	data, err := ioutil.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
-	
+
 	cm.config = &ContractConfig{}
 	if err := json.Unmarshal(data, cm.config); err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
-	
+
 	log.Printf("✅ 配置加载成功")
 	log.Printf("📋 网络: %s (Chain ID: %d)", cm.config.Network.Name, cm.config.Network.ChainID)
 	log.Printf("📋 代币数量: %d", len(cm.config.Tokens))
 	log.Printf("📋 合约数量: %d", len(cm.config.Contracts))
-	
+
 	return nil
 }
 
 // LoadArtifacts 加载合约 ABI
 func (cm *ContractManager) LoadArtifacts() error {
 	log.Printf("📋 加载合约 ABI")
-	
+
 	for name, contract := range cm.config.Contracts {
 		log.Printf("📋 加载合约 %s 的 ABI", name)
-		
+
 		artifactPath := contract.ArtifactPath
 		if !filepath.IsAbs(artifactPath) {
 			artifactPath = filepath.Join(".", artifactPath)
 		}
-		
+
 		data, err := ioutil.ReadFile(artifactPath)
 		if err != nil {
 			log.Printf("⚠️  无法读取 %s 的 ABI 文件: %v", name, err)
 			continue
 		}
-		
+
 		artifact := &ContractArtifact{}
 		if err := json.Unmarshal(data, artifact); err != nil {
 			log.Printf("⚠️  无法解析 %s 的 ABI: %v", name, err)
 			continue
 		}
-		
+
 		cm.artifacts[name] = artifact
 		log.Printf("✅ %s ABI 加载成功", name)
 	}
-	
+
 	return nil
 }
 
 // ParseSwapRequest 解析兑换请求
 func (cm *ContractManager) ParseSwapRequest(message string) (*SwapRequest, error) {
 	log.Printf("🔄 解析兑换请求: %s", message)
-	
+
 	// 定义匹配模式
 	patterns := []string{
 		`兑换\s*(\d+(?:\.\d+)?)\s*(\w+)(?:\s*为?\s*(\w+))?`,
@@ -209,16 +210,16 @@ func (cm *ContractManager) ParseSwapRequest(message string) (*SwapRequest, error
 		`swap\s+(\d+(?:\.\d+)?)\s+(\w+)\s+to\s+(\w+)`,
 		`exchange\s+(\d+(?:\.\d+)?)\s+(\w+)\s+for\s+(\w+)`,
 	}
-	
+
 	for _, pattern := range patterns {
 		re := regexp.MustCompile(pattern)
 		matches := re.FindStringSubmatch(message)
-		
+
 		if len(matches) >= 3 {
 			amount := matches[1]
 			fromToken := strings.ToUpper(matches[2])
 			toToken := ""
-			
+
 			if len(matches) >= 4 && matches[3] != "" {
 				toToken = strings.ToUpper(matches[3])
 			} else {
@@ -229,13 +230,13 @@ func (cm *ContractManager) ParseSwapRequest(message string) (*SwapRequest, error
 					toToken = "MEER"
 				}
 			}
-			
+
 			if toToken == "" {
 				continue
 			}
-			
+
 			log.Printf("✅ 解析成功: %s %s -> %s", amount, fromToken, toToken)
-			
+
 			return &SwapRequest{
 				FromToken: fromToken,
 				ToToken:   toToken,
@@ -243,7 +244,7 @@ func (cm *ContractManager) ParseSwapRequest(message string) (*SwapRequest, error
 			}, nil
 		}
 	}
-	
+
 	return nil, fmt.Errorf("unable to parse swap request from message")
 }
 
@@ -251,13 +252,29 @@ func (cm *ContractManager) ParseSwapRequest(message string) (*SwapRequest, error
 func (cm *ContractManager) BuildSwapTransaction(req *SwapRequest) (*TransactionData, error) {
 	log.Printf("🔄 构建兑换交易")
 	log.Printf("📋 从 %s 兑换 %s 到 %s", req.FromToken, req.Amount, req.ToToken)
-	
-	// 查找支持的交换对
-	swapContract := cm.config.Contracts["SimpleSwap"]
-	if swapContract.Address == "" {
-		return nil, fmt.Errorf("SimpleSwap contract not found")
+
+	// 选择合约
+	var swapContract ContractInfo
+	var contractName string
+
+	if req.ContractName != "" {
+		// 如果指定了合约名称，使用指定的合约
+		contractName = req.ContractName
+		swapContract = cm.config.Contracts[contractName]
+		if swapContract.Address == "" {
+			return nil, fmt.Errorf("specified contract %s not found", contractName)
+		}
+		log.Printf("📋 使用指定合约: %s", contractName)
+	} else {
+		// 自动选择支持该代币对的合约
+		contractName = cm.findContractForTokenPair(req.FromToken, req.ToToken)
+		if contractName == "" {
+			return nil, fmt.Errorf("no contract found supporting %s -> %s", req.FromToken, req.ToToken)
+		}
+		swapContract = cm.config.Contracts[contractName]
+		log.Printf("📋 自动选择合约: %s", contractName)
 	}
-	
+
 	var swapPair *SwapPair
 	for _, pair := range swapContract.SupportedPairs {
 		if pair.From == req.FromToken && pair.To == req.ToToken {
@@ -265,26 +282,26 @@ func (cm *ContractManager) BuildSwapTransaction(req *SwapRequest) (*TransactionD
 			break
 		}
 	}
-	
+
 	if swapPair == nil {
 		return nil, fmt.Errorf("unsupported swap pair: %s -> %s", req.FromToken, req.ToToken)
 	}
-	
+
 	log.Printf("✅ 找到交换对: %s", swapPair.Description)
-	
+
 	// 解析金额
 	amount, err := strconv.ParseFloat(req.Amount, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid amount: %s", req.Amount)
 	}
-	
+
 	// 构建交易数据
 	txData := &TransactionData{
 		To:       swapContract.Address,
-		GasLimit: "0x186A0",  // 100000 gas
+		GasLimit: "0x186A0",    // 100000 gas
 		GasPrice: "0x3B9ACA00", // 1 gwei
 	}
-	
+
 	if swapPair.Method == "buyToken" {
 		// MEER -> MTK：需要发送 ETH
 		// 用户请求的是 MEER 数量，需要转换为 wei
@@ -292,17 +309,17 @@ func (cm *ContractManager) BuildSwapTransaction(req *SwapRequest) (*TransactionD
 		weiAmount, _ = weiAmount.SetString(fmt.Sprintf("%.0f", amount*1e18), 10)
 		txData.Value = "0x" + weiAmount.Text(16)
 		txData.Data = "0xa4821719" // buyToken() 函数签名 (ethers.js计算)
-		
+
 		log.Printf("📋 MEER -> MTK 交易")
 		log.Printf("📋 用户请求: %s MEER", req.Amount)
 		log.Printf("📋 发送金额: %s wei (%.0f MEER)", weiAmount.Text(10), amount)
 		log.Printf("📋 预期获得: %.0f MTK", amount*swapPair.Rate)
-		
+
 	} else if swapPair.Method == "sellToken" {
 		// MTK -> MEER：调用 sellToken 函数
 		tokenAmount := new(big.Int)
 		tokenAmount, _ = tokenAmount.SetString(fmt.Sprintf("%.0f", amount*1e18), 10)
-		
+
 		// sellToken(uint256) 函数调用数据
 		// 函数签名: 0x2397e4d7 (ethers.js计算)
 		// 参数: 代币数量 (uint256)
@@ -310,20 +327,41 @@ func (cm *ContractManager) BuildSwapTransaction(req *SwapRequest) (*TransactionD
 		amountHex := fmt.Sprintf("%064s", tokenAmount.Text(16))
 		txData.Data = "0x" + funcSig + amountHex
 		txData.Value = "0x0"
-		
+
 		log.Printf("📋 MTK -> MEER 交易")
 		log.Printf("📋 卖出金额: %s MTK", req.Amount)
 		log.Printf("📋 预期获得: %.6f MEER", amount*swapPair.Rate)
 	}
-	
+
 	log.Printf("✅ 交易数据构建完成")
 	return txData, nil
+}
+
+// findContractForTokenPair 根据代币对查找合适的合约
+func (cm *ContractManager) findContractForTokenPair(fromToken, toToken string) string {
+	log.Printf("🔍 查找支持 %s -> %s 的合约", fromToken, toToken)
+
+	// 遍历所有合约，查找支持该代币对的合约
+	for contractName, contract := range cm.config.Contracts {
+		if contract.Type == "DEX" || contract.Type == "Swap" {
+			// 检查该合约是否支持指定的代币对
+			for _, pair := range contract.SupportedPairs {
+				if pair.From == fromToken && pair.To == toToken {
+					log.Printf("✅ 找到支持合约: %s", contractName)
+					return contractName
+				}
+			}
+		}
+	}
+
+	log.Printf("❌ 未找到支持 %s -> %s 的合约", fromToken, toToken)
+	return ""
 }
 
 // ParseStakeRequest 解析质押请求
 func (cm *ContractManager) ParseStakeRequest(message string) (*StakeRequest, error) {
 	log.Printf("🔄 解析质押请求: %s", message)
-	
+
 	// 定义匹配模式
 	patterns := []map[string]string{
 		{
@@ -355,14 +393,14 @@ func (cm *ContractManager) ParseStakeRequest(message string) (*StakeRequest, err
 			"action":  "claimRewards",
 		},
 	}
-	
+
 	for _, patternInfo := range patterns {
 		re := regexp.MustCompile(patternInfo["pattern"])
 		matches := re.FindStringSubmatch(message)
-		
+
 		if len(matches) > 0 {
 			action := patternInfo["action"]
-			
+
 			if action == "claimRewards" {
 				// 领取奖励不需要金额
 				log.Printf("✅ 解析成功: 领取奖励")
@@ -374,9 +412,9 @@ func (cm *ContractManager) ParseStakeRequest(message string) (*StakeRequest, err
 			} else if len(matches) >= 3 {
 				amount := matches[1]
 				token := strings.ToUpper(matches[2])
-				
+
 				log.Printf("✅ 解析成功: %s %s %s", action, amount, token)
-				
+
 				return &StakeRequest{
 					Token:  token,
 					Amount: amount,
@@ -385,7 +423,7 @@ func (cm *ContractManager) ParseStakeRequest(message string) (*StakeRequest, err
 			}
 		}
 	}
-	
+
 	return nil, fmt.Errorf("unable to parse stake request from message")
 }
 
@@ -393,21 +431,21 @@ func (cm *ContractManager) ParseStakeRequest(message string) (*StakeRequest, err
 func (cm *ContractManager) BuildStakeTransaction(req *StakeRequest) (*TransactionData, error) {
 	log.Printf("🔄 构建质押交易")
 	log.Printf("📋 操作: %s, 代币: %s, 数量: %s", req.Action, req.Token, req.Amount)
-	
+
 	// 查找质押合约
 	stakingContract := cm.config.Contracts["MTKStaking"]
 	if stakingContract.Address == "" {
 		return nil, fmt.Errorf("MTKStaking contract not found")
 	}
-	
+
 	// 构建交易数据
 	txData := &TransactionData{
 		To:       stakingContract.Address,
-		Value:    "0x0", // 质押不需要发送原生代币
-		GasLimit: "0x30D40",  // 200000 gas (足够的余量)
+		Value:    "0x0",        // 质押不需要发送原生代币
+		GasLimit: "0x30D40",    // 200000 gas (足够的余量)
 		GasPrice: "0x3B9ACA00", // 1 gwei
 	}
-	
+
 	switch req.Action {
 	case "stake":
 		// 质押操作
@@ -415,50 +453,50 @@ func (cm *ContractManager) BuildStakeTransaction(req *StakeRequest) (*Transactio
 		if err != nil {
 			return nil, fmt.Errorf("invalid amount: %s", req.Amount)
 		}
-		
+
 		// 将金额转换为 wei
 		weiAmount := new(big.Int)
 		weiAmount, _ = weiAmount.SetString(fmt.Sprintf("%.0f", amount*1e18), 10)
-		
+
 		// stake(uint256) 函数调用数据
 		// 函数签名: 0xa694fc3a
 		funcSig := "a694fc3a"
 		amountHex := fmt.Sprintf("%064s", weiAmount.Text(16))
 		txData.Data = "0x" + funcSig + amountHex
-		
+
 		log.Printf("📋 质押交易: %s %s", req.Amount, req.Token)
-		
+
 	case "unstake":
 		// 取消质押操作
 		amount, err := strconv.ParseFloat(req.Amount, 64)
 		if err != nil {
 			return nil, fmt.Errorf("invalid amount: %s", req.Amount)
 		}
-		
+
 		// 将金额转换为 wei
 		weiAmount := new(big.Int)
 		weiAmount, _ = weiAmount.SetString(fmt.Sprintf("%.0f", amount*1e18), 10)
-		
+
 		// unstake(uint256) 函数调用数据
 		// 函数签名: 0x2e17de78
 		funcSig := "2e17de78"
 		amountHex := fmt.Sprintf("%064s", weiAmount.Text(16))
 		txData.Data = "0x" + funcSig + amountHex
-		
+
 		log.Printf("📋 取消质押交易: %s %s", req.Amount, req.Token)
-		
+
 	case "claimRewards":
 		// 领取奖励操作
 		// claimRewards() 函数调用数据
 		// 函数签名: 0xef5cfb8c
 		txData.Data = "0xef5cfb8c"
-		
+
 		log.Printf("📋 领取奖励交易")
-		
+
 	default:
 		return nil, fmt.Errorf("unsupported stake action: %s", req.Action)
 	}
-	
+
 	log.Printf("✅ 质押交易数据构建完成")
 	return txData, nil
 }
@@ -467,54 +505,54 @@ func (cm *ContractManager) BuildStakeTransaction(req *StakeRequest) (*Transactio
 func (cm *ContractManager) BuildApproveTransaction(req *StakeRequest) (*TransactionData, error) {
 	log.Printf("🔄 构建ERC20授权交易")
 	log.Printf("📋 代币: %s, 数量: %s", req.Token, req.Amount)
-	
+
 	// 获取MTK代币合约地址
 	mtkToken := cm.config.Tokens["MTK"]
 	if mtkToken.ContractAddress == "" {
 		return nil, fmt.Errorf("MTK token contract address not found")
 	}
-	
+
 	// 获取质押合约地址
 	stakingContract := cm.config.Contracts["MTKStaking"]
 	if stakingContract.Address == "" {
 		return nil, fmt.Errorf("MTKStaking contract address not found")
 	}
-	
+
 	// 解析授权金额
 	amount, err := strconv.ParseFloat(req.Amount, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid amount: %s", req.Amount)
 	}
-	
+
 	// 将金额转换为 wei
 	weiAmount := new(big.Int)
 	weiAmount, _ = weiAmount.SetString(fmt.Sprintf("%.0f", amount*1e18), 10)
-	
+
 	// 构建交易数据
 	txData := &TransactionData{
 		To:       mtkToken.ContractAddress, // 发送给MTK代币合约
 		Value:    "0x0",
-		GasLimit: "0x1FBBF",  // 130000 gas (approve通常需要较少gas)
+		GasLimit: "0x1FBBF",    // 130000 gas (approve通常需要较少gas)
 		GasPrice: "0x3B9ACA00", // 1 gwei
 	}
-	
+
 	// approve(address spender, uint256 amount) 函数调用数据
 	// 函数签名: 0x095ea7b3
 	funcSig := "095ea7b3"
-	
+
 	// 第一个参数：spender地址（质押合约地址，去掉0x并填充到64位）
 	spenderAddr := strings.TrimPrefix(stakingContract.Address, "0x")
 	spenderAddrPadded := fmt.Sprintf("%064s", spenderAddr)
-	
+
 	// 第二个参数：授权金额（填充到64位十六进制）
 	amountHex := fmt.Sprintf("%064s", weiAmount.Text(16))
-	
+
 	// 组合完整的调用数据
 	txData.Data = "0x" + funcSig + spenderAddrPadded + amountHex
-	
+
 	log.Printf("📋 授权交易: %s %s 给质押合约 %s", req.Amount, req.Token, stakingContract.Address)
 	log.Printf("📋 交易数据: %s", txData.Data)
-	
+
 	log.Printf("✅ 授权交易数据构建完成")
 	return txData, nil
 }
@@ -558,34 +596,44 @@ func (cm *ContractManager) GetSupportedPairs() []string {
 
 // GetContractAddressByOperation 根据操作类型获取合约地址
 func (cm *ContractManager) GetContractAddressByOperation(operationType string) (string, error) {
-	switch operationType {
-	case "swap":
-		// 获取 SimpleSwap 合约地址
-		if contract := cm.GetContractInfo("SimpleSwap"); contract != nil {
-			return contract.Address, nil
-		}
-		return "", fmt.Errorf("SimpleSwap contract not found in config")
-	case "stake":
-		// 获取 MTKStaking 合约地址
-		if contract := cm.GetContractInfo("MTKStaking"); contract != nil {
-			return contract.Address, nil
-		}
-		return "", fmt.Errorf("MTKStaking contract not found in config")
-	case "unstake":
-		// 获取 MTKStaking 合约地址
-		if contract := cm.GetContractInfo("MTKStaking"); contract != nil {
-			return contract.Address, nil
-		}
-		return "", fmt.Errorf("MTKStaking contract not found in config")
-	case "claimRewards":
-		// 获取 MTKStaking 合约地址
-		if contract := cm.GetContractInfo("MTKStaking"); contract != nil {
-			return contract.Address, nil
-		}
-		return "", fmt.Errorf("MTKStaking contract not found in config")
-	default:
+	log.Printf("🔍 根据操作类型查找合约: %s", operationType)
+
+	// 定义操作类型与合约类型的映射
+	operationTypeMapping := map[string][]string{
+		"swap":         {"DEX", "Swap", "Exchange"},
+		"stake":        {"Staking", "Rewards"},
+		"unstake":      {"Staking", "Rewards"},
+		"claimRewards": {"Staking", "Rewards"},
+	}
+
+	// 获取支持的操作类型
+	supportedTypes, exists := operationTypeMapping[operationType]
+	if !exists {
 		return "", fmt.Errorf("unsupported operation type: %s", operationType)
 	}
+
+	// 遍历所有合约，查找支持该操作类型的合约
+	for contractName, contract := range cm.config.Contracts {
+		// 检查合约类型是否匹配
+		for _, supportedType := range supportedTypes {
+			if contract.Type == supportedType {
+				log.Printf("✅ 找到支持 %s 操作的合约: %s (%s)", operationType, contractName, contract.Address)
+				return contract.Address, nil
+			}
+		}
+
+		// 也可以检查合约的服务列表
+		if contract.SupportedPairs != nil {
+			// 对于swap操作，检查是否有支持的交换对
+			if operationType == "swap" && len(contract.SupportedPairs) > 0 {
+				log.Printf("✅ 找到支持swap操作的合约: %s (%s)", contractName, contract.Address)
+				return contract.Address, nil
+			}
+		}
+	}
+
+	log.Printf("❌ 未找到支持 %s 操作的合约", operationType)
+	return "", fmt.Errorf("no contract found supporting operation: %s", operationType)
 }
 
 // GetWorkflowDescription 获取工作流描述（供 LLM 使用）
@@ -609,7 +657,7 @@ func (cm *ContractManager) GetWorkflowDescription() string {
 	description += "\n支持的交换对:\n"
 	for _, contract := range cm.config.Contracts {
 		for _, pair := range contract.SupportedPairs {
-			description += fmt.Sprintf("- %s -> %s (汇率: %.0f, 方法: %s)\n", 
+			description += fmt.Sprintf("- %s -> %s (汇率: %.0f, 方法: %s)\n",
 				pair.From, pair.To, pair.Rate, pair.Method)
 		}
 	}
@@ -620,4 +668,4 @@ func (cm *ContractManager) GetWorkflowDescription() string {
 	}
 
 	return description
-} 
+}
