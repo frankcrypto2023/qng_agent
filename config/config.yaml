@@ -65,7 +65,7 @@ llm:
         server_port: 8081                 # 启动端口
         
         # 模型配置
-        model_path: "/root/.cache/modelscope/hub/models/unsloth/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q5_K_M.gguf"  # 模型文件路径
+        model_path: "/root/.cache/modelscope/hub/models/unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_0.gguf"  # 模型文件路径
         
         # 性能参数
         context_size: 4096      # 上下文窗口大小

@@ -1,0 +1,1 @@
+llama-server --model "/root/.cache/modelscope/hub/models/unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_0.gguf" --port 8081 --ctx-size 4096 --threads 4 --temp 0.7 --top-p 0.9 --top-k 40 --repeat-penalty 1.1 --gpu-layers 20
