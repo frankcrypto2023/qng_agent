@@ -130,3 +130,17 @@ func (c *GeminiClient) Chat(ctx context.Context, messages []Message) (string, er
 
 	return response.Candidates[0].Content.Parts[0].Text, nil
 }
+
+func (c *GeminiClient) ChatStream(ctx context.Context, messages []Message) (<-chan string, error) {
+	// 使用模拟客户端进行流式响应
+	mockClient := NewMockClient()
+	return mockClient.ChatStream(ctx, messages)
+}
+
+func (c *GeminiClient) GetModelInfo() map[string]interface{} {
+	return map[string]interface{}{
+		"provider": "gemini",
+		"model":    c.config.Model,
+		"timeout":  c.config.Timeout,
+	}
+}

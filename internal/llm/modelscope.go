@@ -182,3 +182,19 @@ func (c *ModelScopeClient) Chat(ctx context.Context, messages []Message) (string
 	// fmt.Println("-------------------", content)
 	return content, nil
 }
+
+func (c *ModelScopeClient) ChatStream(ctx context.Context, messages []Message) (<-chan string, error) {
+	// 使用模拟客户端进行流式响应
+	mockClient := NewMockClient()
+	return mockClient.ChatStream(ctx, messages)
+}
+
+func (c *ModelScopeClient) GetModelInfo() map[string]interface{} {
+	return map[string]interface{}{
+		"provider":   "modelscope",
+		"model":      c.config.Model,
+		"base_url":   c.config.BaseURL,
+		"timeout":    c.config.Timeout,
+		"max_tokens": c.config.MaxTokens,
+	}
+}

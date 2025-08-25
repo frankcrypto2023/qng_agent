@@ -90,6 +90,32 @@ type LlamaCppConfig struct {
 	MemoryF16      bool    `mapstructure:"memory_f16" yaml:"memory_f16"`
 	MemoryLock     bool    `mapstructure:"memory_lock" yaml:"memory_lock"`
 	RepeatPenalty  float64 `mapstructure:"repeat_penalty" yaml:"repeat_penalty"`
+
+	// 新增参数
+	CachePrompt      bool    `mapstructure:"cache_prompt" yaml:"cache_prompt"`
+	ReasoningFormat  string  `mapstructure:"reasoning_format" yaml:"reasoning_format"`
+	Samplers         string  `mapstructure:"samplers" yaml:"samplers"`
+	DynatempRange    float64 `mapstructure:"dynatemp_range" yaml:"dynatemp_range"`
+	DynatempExponent float64 `mapstructure:"dynatemp_exponent" yaml:"dynatemp_exponent"`
+	MinP             float64 `mapstructure:"min_p" yaml:"min_p"`
+	TypicalP         float64 `mapstructure:"typical_p" yaml:"typical_p"`
+	XtcProbability   float64 `mapstructure:"xtc_probability" yaml:"xtc_probability"`
+	XtcThreshold     float64 `mapstructure:"xtc_threshold" yaml:"xtc_threshold"`
+	RepeatLastN      int     `mapstructure:"repeat_last_n" yaml:"repeat_last_n"`
+	PresencePenalty  float64 `mapstructure:"presence_penalty" yaml:"presence_penalty"`
+	FrequencyPenalty float64 `mapstructure:"frequency_penalty" yaml:"frequency_penalty"`
+	DryMultiplier    float64 `mapstructure:"dry_multiplier" yaml:"dry_multiplier"`
+	DryBase          float64 `mapstructure:"dry_base" yaml:"dry_base"`
+	DryAllowedLength int     `mapstructure:"dry_allowed_length" yaml:"dry_allowed_length"`
+	DryPenaltyLastN  int     `mapstructure:"dry_penalty_last_n" yaml:"dry_penalty_last_n"`
+	TimingsPerToken  bool    `mapstructure:"timings_per_token" yaml:"timings_per_token"`
+	
+	// 服务器启动参数
+	BatchSize       int    `mapstructure:"batch_size" yaml:"batch_size"`
+	UserBatchSize   int    `mapstructure:"user_batch_size" yaml:"user_batch_size"`
+	FlashAttention  bool   `mapstructure:"flash_attention" yaml:"flash_attention"`
+	ReasoningEffort string `mapstructure:"reasoning_effort" yaml:"reasoning_effort"`
+	LogLevel        int    `mapstructure:"log_level" yaml:"log_level"`
 }
 
 type RegisterConfig struct {
@@ -421,6 +447,70 @@ func SaveToFile(cfg *Config, configPath string) error {
 	if cfg.LLM.LlamaCpp.RepeatPenalty > 0 {
 		v.Set("llm.llamacpp.repeat_penalty", cfg.LLM.LlamaCpp.RepeatPenalty)
 	}
+	
+	// 保存新增参数
+	v.Set("llm.llamacpp.cache_prompt", cfg.LLM.LlamaCpp.CachePrompt)
+	if cfg.LLM.LlamaCpp.ReasoningFormat != "" {
+		v.Set("llm.llamacpp.reasoning_format", cfg.LLM.LlamaCpp.ReasoningFormat)
+	}
+	if cfg.LLM.LlamaCpp.Samplers != "" {
+		v.Set("llm.llamacpp.samplers", cfg.LLM.LlamaCpp.Samplers)
+	}
+	if cfg.LLM.LlamaCpp.DynatempRange > 0 {
+		v.Set("llm.llamacpp.dynatemp_range", cfg.LLM.LlamaCpp.DynatempRange)
+	}
+	if cfg.LLM.LlamaCpp.DynatempExponent > 0 {
+		v.Set("llm.llamacpp.dynatemp_exponent", cfg.LLM.LlamaCpp.DynatempExponent)
+	}
+	if cfg.LLM.LlamaCpp.MinP > 0 {
+		v.Set("llm.llamacpp.min_p", cfg.LLM.LlamaCpp.MinP)
+	}
+	if cfg.LLM.LlamaCpp.TypicalP > 0 {
+		v.Set("llm.llamacpp.typical_p", cfg.LLM.LlamaCpp.TypicalP)
+	}
+	if cfg.LLM.LlamaCpp.XtcProbability > 0 {
+		v.Set("llm.llamacpp.xtc_probability", cfg.LLM.LlamaCpp.XtcProbability)
+	}
+	if cfg.LLM.LlamaCpp.XtcThreshold > 0 {
+		v.Set("llm.llamacpp.xtc_threshold", cfg.LLM.LlamaCpp.XtcThreshold)
+	}
+	if cfg.LLM.LlamaCpp.RepeatLastN > 0 {
+		v.Set("llm.llamacpp.repeat_last_n", cfg.LLM.LlamaCpp.RepeatLastN)
+	}
+	if cfg.LLM.LlamaCpp.PresencePenalty != 0 {
+		v.Set("llm.llamacpp.presence_penalty", cfg.LLM.LlamaCpp.PresencePenalty)
+	}
+	if cfg.LLM.LlamaCpp.FrequencyPenalty != 0 {
+		v.Set("llm.llamacpp.frequency_penalty", cfg.LLM.LlamaCpp.FrequencyPenalty)
+	}
+	if cfg.LLM.LlamaCpp.DryMultiplier != 0 {
+		v.Set("llm.llamacpp.dry_multiplier", cfg.LLM.LlamaCpp.DryMultiplier)
+	}
+	if cfg.LLM.LlamaCpp.DryBase > 0 {
+		v.Set("llm.llamacpp.dry_base", cfg.LLM.LlamaCpp.DryBase)
+	}
+	if cfg.LLM.LlamaCpp.DryAllowedLength > 0 {
+		v.Set("llm.llamacpp.dry_allowed_length", cfg.LLM.LlamaCpp.DryAllowedLength)
+	}
+	if cfg.LLM.LlamaCpp.DryPenaltyLastN != 0 {
+		v.Set("llm.llamacpp.dry_penalty_last_n", cfg.LLM.LlamaCpp.DryPenaltyLastN)
+	}
+	v.Set("llm.llamacpp.timings_per_token", cfg.LLM.LlamaCpp.TimingsPerToken)
+	
+	// 保存服务器启动参数
+	if cfg.LLM.LlamaCpp.BatchSize > 0 {
+		v.Set("llm.llamacpp.batch_size", cfg.LLM.LlamaCpp.BatchSize)
+	}
+	if cfg.LLM.LlamaCpp.UserBatchSize > 0 {
+		v.Set("llm.llamacpp.user_batch_size", cfg.LLM.LlamaCpp.UserBatchSize)
+	}
+	v.Set("llm.llamacpp.flash_attention", cfg.LLM.LlamaCpp.FlashAttention)
+	if cfg.LLM.LlamaCpp.ReasoningEffort != "" {
+		v.Set("llm.llamacpp.reasoning_effort", cfg.LLM.LlamaCpp.ReasoningEffort)
+	}
+	if cfg.LLM.LlamaCpp.LogLevel > 0 {
+		v.Set("llm.llamacpp.log_level", cfg.LLM.LlamaCpp.LogLevel)
+	}
 
 	// 更新MCP服务器配置
 	for serverName, serverConfig := range cfg.MCP.Servers {
@@ -484,6 +574,32 @@ func setDefaults() {
 	viper.SetDefault("llm.llamacpp.memory_f16", false)
 	viper.SetDefault("llm.llamacpp.memory_lock", false)
 	viper.SetDefault("llm.llamacpp.repeat_penalty", 1.1)
+
+	// 新增参数默认值
+	viper.SetDefault("llm.llamacpp.cache_prompt", true)
+	viper.SetDefault("llm.llamacpp.reasoning_format", "none")
+	viper.SetDefault("llm.llamacpp.samplers", "edkypmxt")
+	viper.SetDefault("llm.llamacpp.dynatemp_range", 0)
+	viper.SetDefault("llm.llamacpp.dynatemp_exponent", 1)
+	viper.SetDefault("llm.llamacpp.min_p", 0.05)
+	viper.SetDefault("llm.llamacpp.typical_p", 1)
+	viper.SetDefault("llm.llamacpp.xtc_probability", 0)
+	viper.SetDefault("llm.llamacpp.xtc_threshold", 0.1)
+	viper.SetDefault("llm.llamacpp.repeat_last_n", 64)
+	viper.SetDefault("llm.llamacpp.presence_penalty", 0)
+	viper.SetDefault("llm.llamacpp.frequency_penalty", 0)
+	viper.SetDefault("llm.llamacpp.dry_multiplier", 0)
+	viper.SetDefault("llm.llamacpp.dry_base", 1.75)
+	viper.SetDefault("llm.llamacpp.dry_allowed_length", 2)
+	viper.SetDefault("llm.llamacpp.dry_penalty_last_n", -1)
+	viper.SetDefault("llm.llamacpp.timings_per_token", true)
+	
+	// 服务器启动参数默认值
+	viper.SetDefault("llm.llamacpp.batch_size", 2048)
+	viper.SetDefault("llm.llamacpp.user_batch_size", 2048)
+	viper.SetDefault("llm.llamacpp.flash_attention", true)
+	viper.SetDefault("llm.llamacpp.reasoning_effort", "high")
+	viper.SetDefault("llm.llamacpp.log_level", 1)
 
 	// MCP服务器默认值
 	viper.SetDefault("mcp.servers.qng.enabled", true)

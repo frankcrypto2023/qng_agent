@@ -16,9 +16,9 @@ type AnthropicClient struct {
 }
 
 type AnthropicRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
-	MaxTokens int      `json:"max_tokens,omitempty"`
+	Model     string    `json:"model"`
+	Messages  []Message `json:"messages"`
+	MaxTokens int       `json:"max_tokens,omitempty"`
 }
 
 type AnthropicResponse struct {
@@ -93,4 +93,18 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []Message) (string,
 	}
 
 	return response.Content[0].Text, nil
+}
+
+func (c *AnthropicClient) ChatStream(ctx context.Context, messages []Message) (<-chan string, error) {
+	// 使用模拟客户端进行流式响应
+	mockClient := NewMockClient()
+	return mockClient.ChatStream(ctx, messages)
+}
+
+func (c *AnthropicClient) GetModelInfo() map[string]interface{} {
+	return map[string]interface{}{
+		"provider": "anthropic",
+		"model":    c.config.Model,
+		"timeout":  c.config.Timeout,
+	}
 }

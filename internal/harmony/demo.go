@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"qng_agent/internal/config"
 	"strings"
 	"time"
 )
@@ -13,8 +14,34 @@ func Demo() {
 	fmt.Println("🤖 Harmony GPT-OSS Demo")
 	fmt.Println(strings.Repeat("=", 50))
 
+	// 创建默认配置
+	defaultConfig := &config.LlamaCppConfig{
+		Temperature:    0.8,
+		TopP:           0.95,
+		TopK:           40,
+		MaxTokens:      2000,
+		RepeatPenalty:  1.1,
+		CachePrompt:    true,
+		ReasoningFormat: "none",
+		Samplers:       "edkypmxt",
+		DynatempRange:  0,
+		DynatempExponent: 1,
+		MinP:           0.05,
+		TypicalP:       1,
+		XtcProbability: 0,
+		XtcThreshold:   0.1,
+		RepeatLastN:    64,
+		PresencePenalty: 0,
+		FrequencyPenalty: 0,
+		DryMultiplier:  0,
+		DryBase:        1.75,
+		DryAllowedLength: 2,
+		DryPenaltyLastN: -1,
+		TimingsPerToken: true,
+	}
+
 	// 创建客户端
-	client := NewLlamaCppHarmonyClient("http://localhost:8081")
+	client := NewLlamaCppHarmonyClient("http://localhost:8081", defaultConfig)
 
 	// 测试基本对话
 	testBasicChat(client)
@@ -229,7 +256,33 @@ func DemoWithCustomPrompt(prompt string) {
 	fmt.Printf("\n🎯 自定义提示 Demo: %s\n", prompt)
 	fmt.Println(strings.Repeat("=", 60))
 
-	client := NewLlamaCppHarmonyClient("http://localhost:8081")
+	// 创建默认配置
+	defaultConfig := &config.LlamaCppConfig{
+		Temperature:    0.8,
+		TopP:           0.95,
+		TopK:           40,
+		MaxTokens:      2000,
+		RepeatPenalty:  1.1,
+		CachePrompt:    true,
+		ReasoningFormat: "none",
+		Samplers:       "edkypmxt",
+		DynatempRange:  0,
+		DynatempExponent: 1,
+		MinP:           0.05,
+		TypicalP:       1,
+		XtcProbability: 0,
+		XtcThreshold:   0.1,
+		RepeatLastN:    64,
+		PresencePenalty: 0,
+		FrequencyPenalty: 0,
+		DryMultiplier:  0,
+		DryBase:        1.75,
+		DryAllowedLength: 2,
+		DryPenaltyLastN: -1,
+		TimingsPerToken: true,
+	}
+
+	client := NewLlamaCppHarmonyClient("http://localhost:8081", defaultConfig)
 
 	// 创建对话
 	conv := Conversation{
@@ -270,7 +323,33 @@ func DemoWithTools(tools map[string]interface{}, userPrompt string) {
 	fmt.Printf("\n🔧 工具调用 Demo: %s\n", userPrompt)
 	fmt.Println(strings.Repeat("=", 60))
 
-	client := NewLlamaCppHarmonyClient("http://localhost:8081")
+	// 创建默认配置
+	defaultConfig := &config.LlamaCppConfig{
+		Temperature:    0.8,
+		TopP:           0.95,
+		TopK:           40,
+		MaxTokens:      2000,
+		RepeatPenalty:  1.1,
+		CachePrompt:    true,
+		ReasoningFormat: "none",
+		Samplers:       "edkypmxt",
+		DynatempRange:  0,
+		DynatempExponent: 1,
+		MinP:           0.05,
+		TypicalP:       1,
+		XtcProbability: 0,
+		XtcThreshold:   0.1,
+		RepeatLastN:    64,
+		PresencePenalty: 0,
+		FrequencyPenalty: 0,
+		DryMultiplier:  0,
+		DryBase:        1.75,
+		DryAllowedLength: 2,
+		DryPenaltyLastN: -1,
+		TimingsPerToken: true,
+	}
+
+	client := NewLlamaCppHarmonyClient("http://localhost:8081", defaultConfig)
 
 	// 创建对话
 	conv := Conversation{

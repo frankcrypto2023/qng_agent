@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"qng_agent/internal/config"
 	"strings"
+	"time"
 )
 
 type Client interface {
 	Chat(ctx context.Context, messages []Message) (string, error)
+	ChatStream(ctx context.Context, messages []Message) (<-chan string, error)
+	GetModelInfo() map[string]interface{}
 }
 
 type Message struct {
@@ -52,7 +55,7 @@ func (c *MockClient) Chat(ctx context.Context, messages []Message) (string, erro
 	// 检查是否包含不支持的代币
 	unsupportedTokens := []string{"usdt", "btc", "eth", "bnb", "ada", "dot", "link", "uni", "aave", "comp"}
 	fmt.Printf("🔍 检查不支持的代币: %v\n", unsupportedTokens)
-	
+
 	for _, token := range unsupportedTokens {
 		fmt.Printf("🔍 检查代币 '%s' 是否在消息中...\n", token)
 		if contains(lastMessage, token) {
@@ -101,7 +104,7 @@ func (c *MockClient) Chat(ctx context.Context, messages []Message) (string, erro
 				}`, unsupportedToken, unsupportedToken, unsupportedToken, unsupportedToken), nil
 			}
 		}
-		
+
 		return `{
 			"intent_type": "compound",
 			"actions": ["兑换MEER为MTK", "质押MTK"],
@@ -188,6 +191,37 @@ func (c *MockClient) Chat(ctx context.Context, messages []Message) (string, erro
 		"estimated_gas": "0.0005 MEER",
 		"estimated_cost": "1.0005 MEER"
 	}`, nil
+}
+
+func (c *MockClient) ChatStream(ctx context.Context, messages []Message) (<-chan string, error) {
+	// 模拟流式响应
+	contentChan := make(chan string, 10)
+
+	go func() {
+		defer close(contentChan)
+
+		// 模拟流式输出
+		response := "这是一个模拟的流式响应。"
+		for _, char := range response {
+			select {
+			case <-ctx.Done():
+				return
+			case contentChan <- string(char):
+				// 模拟延迟
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+	}()
+
+	return contentChan, nil
+}
+
+func (c *MockClient) GetModelInfo() map[string]interface{} {
+	return map[string]interface{}{
+		"provider": "mock",
+		"model":    "mock-model",
+		"version":  "1.0.0",
+	}
 }
 
 func contains(s, substr string) bool {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"qng_agent/internal/config"
 	"qng_agent/internal/harmony"
 	"strings"
 	"time"
@@ -43,8 +44,34 @@ func NewWebServer(baseURL, port string) *WebServer {
 	// 设置 Web UI 路径
 	webuiPath := "cmd/harmony_demo/frontend"
 
+	// 创建默认配置
+	defaultConfig := &config.LlamaCppConfig{
+		Temperature:      0.8,
+		TopP:             0.95,
+		TopK:             40,
+		MaxTokens:        2000,
+		RepeatPenalty:    1.1,
+		CachePrompt:      true,
+		ReasoningFormat:  "none",
+		Samplers:         "edkypmxt",
+		DynatempRange:    0,
+		DynatempExponent: 1,
+		MinP:             0.05,
+		TypicalP:         1,
+		XtcProbability:   0,
+		XtcThreshold:     0.1,
+		RepeatLastN:      64,
+		PresencePenalty:  0,
+		FrequencyPenalty: 0,
+		DryMultiplier:    0,
+		DryBase:          1.75,
+		DryAllowedLength: 2,
+		DryPenaltyLastN:  -1,
+		TimingsPerToken:  true,
+	}
+
 	return &WebServer{
-		harmonyClient: harmony.NewLlamaCppHarmonyClient(baseURL),
+		harmonyClient: harmony.NewLlamaCppHarmonyClient(baseURL, defaultConfig),
 		port:          port,
 		webuiPath:     webuiPath,
 	}
@@ -830,7 +857,7 @@ func (s *WebServer) handleChat(w http.ResponseWriter, r *http.Request) {
 	conv := s.createConversation(req.Message, req.Mode)
 
 	// 发送请求
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	resp, err := s.harmonyClient.Chat(ctx, conv, &harmony.ChatOptions{
@@ -916,7 +943,7 @@ func (s *WebServer) handleStream(w http.ResponseWriter, r *http.Request) {
 
 			// 检查 Content 是否为空
 			if resp.Content.Content == nil {
-				log.Printf("⚠️ 收到空的 Content，跳过")
+				log.Printf("⚠️ 收到空的 Content.Content，跳过")
 				continue
 			}
 

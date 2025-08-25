@@ -236,7 +236,7 @@ func (e *HarmonyEncoder) decodeDeveloperContent(content string) DeveloperContent
 func (e *HarmonyEncoder) decodeAssistantContent(content string) AssistantContent {
 	// 处理复杂的多通道响应格式
 	// 例如: "analysis<|message|>We need to respond politely.<|start|>assistant<|channel|>commentary..."
-	
+
 	// 首先尝试提取最后一个有效的助手消息
 	if strings.Contains(content, "<|start|>assistant<|channel|>") {
 		// 找到最后一个助手消息的开始位置
@@ -249,7 +249,7 @@ func (e *HarmonyEncoder) decodeAssistantContent(content string) AssistantContent
 				channel := Channel(strings.TrimSpace(content[channelStart : channelStart+channelEnd]))
 				messageStart := channelStart + channelEnd + len("<|message|>")
 				messageContent := strings.TrimSpace(content[messageStart:])
-				
+
 				return AssistantContent{
 					Channel: channel,
 					Content: messageContent,
@@ -257,7 +257,7 @@ func (e *HarmonyEncoder) decodeAssistantContent(content string) AssistantContent
 			}
 		}
 	}
-	
+
 	// 如果没有找到复杂的格式，尝试简单的 Channel: 格式
 	lines := strings.Split(content, "\n")
 	if len(lines) > 0 && strings.HasPrefix(lines[0], "Channel: ") {

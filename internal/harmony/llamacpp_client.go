@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"qng_agent/internal/config"
 	"strings"
 	"time"
 )
@@ -70,6 +71,22 @@ type LlamaCppRequest struct {
 	PenaltyWindowWindowLastN int      `json:"penalty_window_window_last_n,omitempty"`
 	PenaltyWindowWindowRange int      `json:"penalty_window_window_range,omitempty"`
 	PenaltyWindowWindowSlope float64  `json:"penalty_window_window_slope,omitempty"`
+
+	// 新增参数
+	CachePrompt      bool    `json:"cache_prompt,omitempty"`
+	ReasoningFormat  string  `json:"reasoning_format,omitempty"`
+	Samplers         string  `json:"samplers,omitempty"`
+	DynatempRange    float64 `json:"dynatemp_range,omitempty"`
+	DynatempExponent float64 `json:"dynatemp_exponent,omitempty"`
+	MinP             float64 `json:"min_p,omitempty"`
+	XtcProbability   float64 `json:"xtc_probability,omitempty"`
+	XtcThreshold     float64 `json:"xtc_threshold,omitempty"`
+	RepeatLastN      int     `json:"repeat_last_n,omitempty"`
+	DryMultiplier    float64 `json:"dry_multiplier,omitempty"`
+	DryBase          float64 `json:"dry_base,omitempty"`
+	DryAllowedLength int     `json:"dry_allowed_length,omitempty"`
+	DryPenaltyLastN  int     `json:"dry_penalty_last_n,omitempty"`
+	TimingsPerToken  bool    `json:"timings_per_token,omitempty"`
 }
 
 // LlamaCppResponse llama.cpp API 响应结构
@@ -116,15 +133,32 @@ type LlamaCppResponse struct {
 	} `json:"timings"`
 }
 
-// LlamaCppStreamResponse 流式响应结构
+// LlamaCppStreamResponse 流式响应结构 - 匹配 llama.cpp 实际响应格式
 type LlamaCppStreamResponse struct {
-	Content string `json:"content"`
-	Stop    bool   `json:"stop"`
-	Timings struct {
-		PredN  int   `json:"pred_n"`
-		PredMS int64 `json:"pred_ms"`
-		PromN  int   `json:"prom_n"`
-		PromMS int64 `json:"prom_ms"`
+	Index              int                    `json:"index"`
+	Content            string                 `json:"content"`
+	Tokens             []int                  `json:"tokens"`
+	Stop               bool                   `json:"stop"`
+	IDSlot             int                    `json:"id_slot"`
+	TokensPredicted    int                    `json:"tokens_predicted"`
+	TokensEvaluated    int                    `json:"tokens_evaluated"`
+	Model              string                 `json:"model,omitempty"`
+	GenerationSettings map[string]interface{} `json:"generation_settings,omitempty"`
+	Prompt             string                 `json:"prompt,omitempty"`
+	HasNewLine         bool                   `json:"has_new_line,omitempty"`
+	Truncated          bool                   `json:"truncated,omitempty"`
+	StopType           string                 `json:"stop_type,omitempty"`
+	StoppingWord       string                 `json:"stopping_word,omitempty"`
+	TokensCached       int                    `json:"tokens_cached,omitempty"`
+	Timings            struct {
+		PromptN             int     `json:"prompt_n"`
+		PromptMs            float64 `json:"prompt_ms"`
+		PromptPerTokenMs    float64 `json:"prompt_per_token_ms"`
+		PromptPerSecond     float64 `json:"prompt_per_second"`
+		PredictedN          int     `json:"predicted_n"`
+		PredictedMs         float64 `json:"predicted_ms"`
+		PredictedPerTokenMs float64 `json:"predicted_per_token_ms"`
+		PredictedPerSecond  float64 `json:"predicted_per_second"`
 	} `json:"timings"`
 }
 
@@ -133,20 +167,27 @@ type LlamaCppHarmonyClient struct {
 	baseURL    string
 	httpClient *http.Client
 	encoder    *HarmonyEncoder
+	config     *config.LlamaCppConfig
 }
 
 // NewLlamaCppHarmonyClient 创建新的 Harmony llama.cpp 客户端
-func NewLlamaCppHarmonyClient(baseURL string) *LlamaCppHarmonyClient {
+func NewLlamaCppHarmonyClient(baseURL string, cfg *config.LlamaCppConfig) *LlamaCppHarmonyClient {
 	if baseURL == "" {
 		baseURL = "http://localhost:8081"
+	}
+
+	timeout := 30 * time.Second
+	if cfg != nil && cfg.Timeout > 0 {
+		timeout = time.Duration(cfg.Timeout) * time.Second
 	}
 
 	return &LlamaCppHarmonyClient{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: timeout,
 		},
 		encoder: NewHarmonyEncoder(),
+		config:  cfg,
 	}
 }
 
@@ -163,6 +204,72 @@ func (c *LlamaCppHarmonyClient) Chat(ctx context.Context, conv Conversation, opt
 		TopP:        0.9,
 		MaxTokens:   2048,
 		Stop:        []string{"<|end|>"},
+	}
+
+	// 应用配置参数
+	if c.config != nil {
+		if c.config.Temperature > 0 {
+			req.Temperature = c.config.Temperature
+		}
+		if c.config.TopP > 0 {
+			req.TopP = c.config.TopP
+		}
+		if c.config.TopK > 0 {
+			req.TopK = c.config.TopK
+		}
+		if c.config.MaxTokens > 0 {
+			req.MaxTokens = c.config.MaxTokens
+		}
+		if c.config.RepeatPenalty > 0 {
+			req.RepeatPenalty = c.config.RepeatPenalty
+		}
+		if c.config.MinP > 0 {
+			req.MinP = c.config.MinP
+		}
+		if c.config.TypicalP > 0 {
+			req.TypicalP = c.config.TypicalP
+		}
+		if c.config.XtcProbability > 0 {
+			req.XtcProbability = c.config.XtcProbability
+		}
+		if c.config.XtcThreshold > 0 {
+			req.XtcThreshold = c.config.XtcThreshold
+		}
+		if c.config.RepeatLastN > 0 {
+			req.RepeatLastN = c.config.RepeatLastN
+		}
+		if c.config.PresencePenalty != 0 {
+			req.PresencePenalty = c.config.PresencePenalty
+		}
+		if c.config.FrequencyPenalty != 0 {
+			req.FrequencyPenalty = c.config.FrequencyPenalty
+		}
+		if c.config.DryMultiplier != 0 {
+			req.DryMultiplier = c.config.DryMultiplier
+		}
+		if c.config.DryBase > 0 {
+			req.DryBase = c.config.DryBase
+		}
+		if c.config.DryAllowedLength > 0 {
+			req.DryAllowedLength = c.config.DryAllowedLength
+		}
+		if c.config.DryPenaltyLastN != 0 {
+			req.DryPenaltyLastN = c.config.DryPenaltyLastN
+		}
+		req.CachePrompt = c.config.CachePrompt
+		if c.config.ReasoningFormat != "" {
+			req.ReasoningFormat = c.config.ReasoningFormat
+		}
+		if c.config.Samplers != "" {
+			req.Samplers = c.config.Samplers
+		}
+		if c.config.DynatempRange > 0 {
+			req.DynatempRange = c.config.DynatempRange
+		}
+		if c.config.DynatempExponent > 0 {
+			req.DynatempExponent = c.config.DynatempExponent
+		}
+		req.TimingsPerToken = c.config.TimingsPerToken
 	}
 
 	// 应用选项
@@ -225,6 +332,72 @@ func (c *LlamaCppHarmonyClient) ChatStream(ctx context.Context, conv Conversatio
 		Stop:        []string{"<|end|>"},
 	}
 
+	// 应用配置参数
+	if c.config != nil {
+		if c.config.Temperature > 0 {
+			req.Temperature = c.config.Temperature
+		}
+		if c.config.TopP > 0 {
+			req.TopP = c.config.TopP
+		}
+		if c.config.TopK > 0 {
+			req.TopK = c.config.TopK
+		}
+		if c.config.MaxTokens > 0 {
+			req.MaxTokens = c.config.MaxTokens
+		}
+		if c.config.RepeatPenalty > 0 {
+			req.RepeatPenalty = c.config.RepeatPenalty
+		}
+		if c.config.MinP > 0 {
+			req.MinP = c.config.MinP
+		}
+		if c.config.TypicalP > 0 {
+			req.TypicalP = c.config.TypicalP
+		}
+		if c.config.XtcProbability > 0 {
+			req.XtcProbability = c.config.XtcProbability
+		}
+		if c.config.XtcThreshold > 0 {
+			req.XtcThreshold = c.config.XtcThreshold
+		}
+		if c.config.RepeatLastN > 0 {
+			req.RepeatLastN = c.config.RepeatLastN
+		}
+		if c.config.PresencePenalty != 0 {
+			req.PresencePenalty = c.config.PresencePenalty
+		}
+		if c.config.FrequencyPenalty != 0 {
+			req.FrequencyPenalty = c.config.FrequencyPenalty
+		}
+		if c.config.DryMultiplier != 0 {
+			req.DryMultiplier = c.config.DryMultiplier
+		}
+		if c.config.DryBase > 0 {
+			req.DryBase = c.config.DryBase
+		}
+		if c.config.DryAllowedLength > 0 {
+			req.DryAllowedLength = c.config.DryAllowedLength
+		}
+		if c.config.DryPenaltyLastN != 0 {
+			req.DryPenaltyLastN = c.config.DryPenaltyLastN
+		}
+		req.CachePrompt = c.config.CachePrompt
+		if c.config.ReasoningFormat != "" {
+			req.ReasoningFormat = c.config.ReasoningFormat
+		}
+		if c.config.Samplers != "" {
+			req.Samplers = c.config.Samplers
+		}
+		if c.config.DynatempRange > 0 {
+			req.DynatempRange = c.config.DynatempRange
+		}
+		if c.config.DynatempExponent > 0 {
+			req.DynatempExponent = c.config.DynatempExponent
+		}
+		req.TimingsPerToken = c.config.TimingsPerToken
+	}
+
 	// 应用选项
 	if options != nil {
 		if options.Temperature > 0 {
@@ -250,17 +423,17 @@ func (c *LlamaCppHarmonyClient) ChatStream(ctx context.Context, conv Conversatio
 	// 创建响应通道
 	responseChan := make(chan *ChatStreamResponse)
 
-			go func() {
-			defer close(responseChan)
-			defer resp.Body.Close()
+	go func() {
+		defer close(responseChan)
+		defer resp.Body.Close()
 
-			reader := bufio.NewReader(resp.Body)
-			var fullContent strings.Builder
-			chunkCount := 0
+		reader := bufio.NewReader(resp.Body)
+		var fullContent strings.Builder
+		chunkCount := 0
 
-			log.Printf("🔄 开始读取流式响应...")
+		log.Printf("🔄 开始读取流式响应...")
 
-			for {
+		for {
 			select {
 			case <-ctx.Done():
 				return
@@ -299,10 +472,24 @@ func (c *LlamaCppHarmonyClient) ChatStream(ctx context.Context, conv Conversatio
 
 				log.Printf("📝 收到原始行: %q", line)
 
+				// 检查是否是数据行
+				if !strings.HasPrefix(line, "data: ") {
+					continue
+				}
+
+				// 提取JSON数据
+				jsonData := strings.TrimPrefix(line, "data: ")
+
+				// 检查是否是结束标记
+				if jsonData == "[DONE]" {
+					log.Printf("✅ 流式响应接收完成")
+					break
+				}
+
 				// 解析流式响应
 				var streamResp LlamaCppStreamResponse
-				if err := json.Unmarshal([]byte(line), &streamResp); err != nil {
-					log.Printf("⚠️ JSON 解析失败: %v, 原始数据: %s", err, line)
+				if err := json.Unmarshal([]byte(jsonData), &streamResp); err != nil {
+					log.Printf("⚠️ JSON 解析失败: %v, 原始数据: %s", err, jsonData)
 					continue
 				}
 
@@ -346,6 +533,7 @@ func (c *LlamaCppHarmonyClient) sendRequest(ctx context.Context, req *LlamaCppRe
 
 	httpReq.Header.Set("Content-Type", "application/json")
 
+	c.httpClient.Timeout = 120 * time.Second
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)

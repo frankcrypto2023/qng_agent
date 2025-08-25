@@ -19,25 +19,33 @@ import (
 	"time"
 )
 
-// StreamResponse 流式响应结构
+// StreamResponse 流式响应结构 - 匹配 llama.cpp 实际响应格式
 type StreamResponse struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	Created int64  `json:"created"`
-	Model   string `json:"model"`
-	Choices []struct {
-		Index int `json:"index"`
-		Delta struct {
-			Content string `json:"content,omitempty"`
-			Role    string `json:"role,omitempty"`
-		} `json:"delta"`
-		FinishReason string `json:"finish_reason,omitempty"`
-	} `json:"choices"`
-	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage,omitempty"`
+	Index              int                    `json:"index"`
+	Content            string                 `json:"content"`
+	Tokens             []int                  `json:"tokens"`
+	Stop               bool                   `json:"stop"`
+	IDSlot             int                    `json:"id_slot"`
+	TokensPredicted    int                    `json:"tokens_predicted"`
+	TokensEvaluated    int                    `json:"tokens_evaluated"`
+	Model              string                 `json:"model,omitempty"`
+	GenerationSettings map[string]interface{} `json:"generation_settings,omitempty"`
+	Prompt             string                 `json:"prompt,omitempty"`
+	HasNewLine         bool                   `json:"has_new_line,omitempty"`
+	Truncated          bool                   `json:"truncated,omitempty"`
+	StopType           string                 `json:"stop_type,omitempty"`
+	StoppingWord       string                 `json:"stopping_word,omitempty"`
+	TokensCached       int                    `json:"tokens_cached,omitempty"`
+	Timings            struct {
+		PromptN             int     `json:"prompt_n"`
+		PromptMs            float64 `json:"prompt_ms"`
+		PromptPerTokenMs    float64 `json:"prompt_per_token_ms"`
+		PromptPerSecond     float64 `json:"prompt_per_second"`
+		PredictedN          int     `json:"predicted_n"`
+		PredictedMs         float64 `json:"predicted_ms"`
+		PredictedPerTokenMs float64 `json:"predicted_per_token_ms"`
+		PredictedPerSecond  float64 `json:"predicted_per_second"`
+	} `json:"timings"`
 }
 
 type LlamaCppLocalClient struct {
@@ -132,26 +140,65 @@ func (c *LlamaCppLocalClient) buildLlamaCppArgs() []string {
 		port = c.config.ServerPort
 	}
 
-	args := []string{
-		"--model", c.config.ModelPath,
-		"--port", fmt.Sprintf("%d", port),
-		"--host", "0.0.0.0",
-	}
-
+	// 设置默认值
+	contextSize := 131072
 	if c.config.ContextSize > 0 {
-		args = append(args, "--ctx-size", fmt.Sprintf("%d", c.config.ContextSize))
-	}
-	if c.config.Threads > 0 {
-		args = append(args, "--threads", fmt.Sprintf("%d", c.config.Threads))
+		contextSize = c.config.ContextSize
 	}
 
-	if c.config.GPU {
-		// args = append(args, "--n-gpu-layers", fmt.Sprintf("%d", c.config.GPULayers))
-		// if c.config.GPUThreads > 0 {
-		// 	args = append(args, "--n-gpu-threads", fmt.Sprintf("%d", c.config.GPUThreads))
-		// }
+	batchSize := 2048
+	if c.config.BatchSize > 0 {
+		batchSize = c.config.BatchSize
 	}
 
+	userBatchSize := 2048
+	if c.config.UserBatchSize > 0 {
+		userBatchSize = c.config.UserBatchSize
+	}
+
+	gpuLayers := 999
+	if c.config.GPULayers > 0 {
+		gpuLayers = c.config.GPULayers
+	}
+
+	reasoningEffort := "high"
+	if c.config.ReasoningEffort != "" {
+		reasoningEffort = c.config.ReasoningEffort
+	}
+
+	logLevel := 1
+	if c.config.LogLevel > 0 {
+		logLevel = c.config.LogLevel
+	}
+
+	args := []string{
+		"-m", c.config.ModelPath, // 模型路径
+		"-c", fmt.Sprintf("%d", contextSize), // 上下文大小
+		"-ngl", fmt.Sprintf("%d", gpuLayers), // GPU层数
+		"-b", fmt.Sprintf("%d", batchSize), // 批处理大小
+		"-ub", fmt.Sprintf("%d", userBatchSize), // 用户批处理大小
+		"--host", "0.0.0.0", // 主机地址
+		"--port", fmt.Sprintf("%d", port), // 端口
+		"-lv", fmt.Sprintf("%d", logLevel), // 日志级别
+	}
+
+	// 添加Flash Attention
+	if c.config.FlashAttention {
+		args = append(args, "-fa")
+	}
+
+	// 添加推理格式
+	if c.config.ReasoningFormat != "" {
+		args = append(args, "--reasoning-format", c.config.ReasoningFormat)
+	} else {
+		args = append(args, "--reasoning-format", "none")
+	}
+
+	// 添加聊天模板参数
+	chatTemplateKwargs := fmt.Sprintf(`{"reasoning_effort":"%s"}`, reasoningEffort)
+	args = append(args, "--chat-template-kwargs", chatTemplateKwargs)
+
+	// 添加内存相关参数
 	if c.config.MemoryF16 {
 		args = append(args, "--f16-kv")
 	}
@@ -159,8 +206,10 @@ func (c *LlamaCppLocalClient) buildLlamaCppArgs() []string {
 		args = append(args, "--mlock")
 	}
 
-	args = append(args, "--batch-size", "512")
-	args = append(args, "--repeat-penalty", fmt.Sprintf("%.2f", c.config.RepeatPenalty))
+	// 添加其他可选参数
+	if c.config.Threads > 0 {
+		args = append(args, "--threads", fmt.Sprintf("%d", c.config.Threads))
+	}
 
 	return args
 }
@@ -211,14 +260,32 @@ func (c *LlamaCppLocalClient) Chat(ctx context.Context, messages []Message) (str
 
 	// 构建请求
 	request := map[string]interface{}{
-		"model":       filepath.Base(c.config.ModelPath),
-		"messages":    messages,
-		"temperature": c.config.Temperature,
-		"top_p":       c.config.TopP,
-		"top_k":       c.config.TopK,
-		"max_tokens":  c.config.MaxTokens,
-		"stream":      true, // 启用流式响应
-		"stop":        []string{"<|im_end|>", "</s>"},
+		"model":              filepath.Base(c.config.ModelPath),
+		"messages":           messages,
+		"temperature":        c.config.Temperature,
+		"top_p":              c.config.TopP,
+		"top_k":              c.config.TopK,
+		"max_tokens":         c.config.MaxTokens,
+		"stream":             true, // 启用流式响应
+		"stop":               []string{"<|im_end|>", "</s>"},
+		"cache_prompt":       c.config.CachePrompt,
+		"reasoning_format":   c.config.ReasoningFormat,
+		"samplers":           c.config.Samplers,
+		"dynatemp_range":     c.config.DynatempRange,
+		"dynatemp_exponent":  c.config.DynatempExponent,
+		"min_p":              c.config.MinP,
+		"typical_p":          c.config.TypicalP,
+		"xtc_probability":    c.config.XtcProbability,
+		"xtc_threshold":      c.config.XtcThreshold,
+		"repeat_last_n":      c.config.RepeatLastN,
+		"repeat_penalty":     c.config.RepeatPenalty,
+		"presence_penalty":   c.config.PresencePenalty,
+		"frequency_penalty":  c.config.FrequencyPenalty,
+		"dry_multiplier":     c.config.DryMultiplier,
+		"dry_base":           c.config.DryBase,
+		"dry_allowed_length": c.config.DryAllowedLength,
+		"dry_penalty_last_n": c.config.DryPenaltyLastN,
+		"timings_per_token":  c.config.TimingsPerToken,
 	}
 
 	jsonData, err := json.Marshal(request)
@@ -301,24 +368,19 @@ func (c *LlamaCppLocalClient) handleStreamResponse(body io.ReadCloser) (string, 
 			continue
 		}
 		// fmt.Println("")
-		// 处理选择内容
-		for _, choice := range streamResp.Choices {
-			if choice.Delta.Content != "" {
-				fullContent.WriteString(choice.Delta.Content)
-				// fmt.Print(choice.Delta.Content)
-			}
-
-			// 检查是否完成
-			if choice.FinishReason != "" {
-				log.Printf("🏁 响应完成，原因: %s", choice.FinishReason)
-			}
+		// 处理内容
+		if streamResp.Content != "" {
+			fullContent.WriteString(streamResp.Content)
+			// fmt.Print(streamResp.Content)
 		}
-		// fmt.Println("")
+
+		// 检查是否完成
+		if streamResp.Stop {
+			log.Printf("🏁 响应完成，停止标志: %v", streamResp.Stop)
+		}
 
 		// 更新token计数
-		if streamResp.Usage != nil {
-			totalTokens = streamResp.Usage.TotalTokens
-		}
+		totalTokens = streamResp.TokensPredicted
 	}
 
 	content := fullContent.String()
@@ -337,13 +399,31 @@ func (c *LlamaCppLocalClient) ChatStream(ctx context.Context, messages []Message
 
 	// 构建请求
 	request := map[string]interface{}{
-		"model":       filepath.Base(c.config.ModelPath),
-		"messages":    messages,
-		"temperature": c.config.Temperature,
-		"top_p":       c.config.TopP,
-		"top_k":       c.config.TopK,
-		"max_tokens":  c.config.MaxTokens,
-		"stream":      true,
+		"model":              filepath.Base(c.config.ModelPath),
+		"messages":           messages,
+		"temperature":        c.config.Temperature,
+		"top_p":              c.config.TopP,
+		"top_k":              c.config.TopK,
+		"max_tokens":         c.config.MaxTokens,
+		"stream":             true,
+		"cache_prompt":       c.config.CachePrompt,
+		"reasoning_format":   c.config.ReasoningFormat,
+		"samplers":           c.config.Samplers,
+		"dynatemp_range":     c.config.DynatempRange,
+		"dynatemp_exponent":  c.config.DynatempExponent,
+		"min_p":              c.config.MinP,
+		"typical_p":          c.config.TypicalP,
+		"xtc_probability":    c.config.XtcProbability,
+		"xtc_threshold":      c.config.XtcThreshold,
+		"repeat_last_n":      c.config.RepeatLastN,
+		"repeat_penalty":     c.config.RepeatPenalty,
+		"presence_penalty":   c.config.PresencePenalty,
+		"frequency_penalty":  c.config.FrequencyPenalty,
+		"dry_multiplier":     c.config.DryMultiplier,
+		"dry_base":           c.config.DryBase,
+		"dry_allowed_length": c.config.DryAllowedLength,
+		"dry_penalty_last_n": c.config.DryPenaltyLastN,
+		"timings_per_token":  c.config.TimingsPerToken,
 	}
 
 	jsonData, err := json.Marshal(request)
@@ -401,7 +481,7 @@ func (c *LlamaCppLocalClient) ChatStream(ctx context.Context, messages []Message
 
 			// 去除行尾的换行符
 			line = strings.TrimSpace(line)
-
+			fmt.Println(line)
 			// 跳过空行
 			if line == "" {
 				continue
@@ -428,21 +508,20 @@ func (c *LlamaCppLocalClient) ChatStream(ctx context.Context, messages []Message
 				continue
 			}
 
-			// 处理选择内容
-			for _, choice := range streamResp.Choices {
-				if choice.Delta.Content != "" {
-					// 发送内容到通道
-					select {
-					case contentChan <- choice.Delta.Content:
-					case <-ctx.Done():
-						return
-					}
+			// 处理内容
+			if streamResp.Content != "" {
+				// 发送内容到通道
+				select {
+				case contentChan <- streamResp.Content:
+				case <-ctx.Done():
+					return
 				}
+			}
 
-				// 检查是否完成
-				if choice.FinishReason != "" {
-					log.Printf("🏁 响应完成，原因: %s", choice.FinishReason)
-				}
+			// 检查是否完成
+			if streamResp.Stop {
+				log.Printf("🏁 响应完成，停止标志: %v", streamResp.Stop)
+				break
 			}
 		}
 	}()
@@ -457,14 +536,32 @@ func (c *LlamaCppLocalClient) Close() error {
 
 func (c *LlamaCppLocalClient) GetModelInfo() map[string]interface{} {
 	return map[string]interface{}{
-		"provider":     "llamacpp_local",
-		"base_url":     c.baseURL,
-		"model_path":   c.config.ModelPath,
-		"context_size": c.config.ContextSize,
-		"threads":      c.config.Threads,
-		"temperature":  c.config.Temperature,
-		"gpu":          c.config.GPU,
-		"initialized":  c.initialized,
+		"provider":           "llamacpp_local",
+		"base_url":           c.baseURL,
+		"model_path":         c.config.ModelPath,
+		"context_size":       c.config.ContextSize,
+		"threads":            c.config.Threads,
+		"temperature":        c.config.Temperature,
+		"gpu":                c.config.GPU,
+		"initialized":        c.initialized,
+		"cache_prompt":       c.config.CachePrompt,
+		"reasoning_format":   c.config.ReasoningFormat,
+		"samplers":           c.config.Samplers,
+		"dynatemp_range":     c.config.DynatempRange,
+		"dynatemp_exponent":  c.config.DynatempExponent,
+		"min_p":              c.config.MinP,
+		"typical_p":          c.config.TypicalP,
+		"xtc_probability":    c.config.XtcProbability,
+		"xtc_threshold":      c.config.XtcThreshold,
+		"repeat_last_n":      c.config.RepeatLastN,
+		"repeat_penalty":     c.config.RepeatPenalty,
+		"presence_penalty":   c.config.PresencePenalty,
+		"frequency_penalty":  c.config.FrequencyPenalty,
+		"dry_multiplier":     c.config.DryMultiplier,
+		"dry_base":           c.config.DryBase,
+		"dry_allowed_length": c.config.DryAllowedLength,
+		"dry_penalty_last_n": c.config.DryPenaltyLastN,
+		"timings_per_token":  c.config.TimingsPerToken,
 	}
 }
 

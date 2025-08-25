@@ -54,6 +54,13 @@ type OllamaOptions struct {
 	RopeFreqBase  float64 `json:"rope_freq_base,omitempty"`
 	RopeFreqScale float64 `json:"rope_freq_scale,omitempty"`
 	MulMatQ       bool    `json:"mul_mat_q,omitempty"`
+	
+	// 新增参数
+	MinP              float64 `json:"min_p,omitempty"`
+	TypicalP          float64 `json:"typical_p,omitempty"`
+	PresencePenalty   float64 `json:"presence_penalty,omitempty"`
+	FrequencyPenalty  float64 `json:"frequency_penalty,omitempty"`
+	RepeatLastN       int     `json:"repeat_last_n,omitempty"`
 }
 
 // OllamaResponse 响应结构
@@ -130,15 +137,20 @@ func (c *OllamaClient) Chat(ctx context.Context, messages []Message) (string, er
 
 	// 构建Ollama选项
 	options := &OllamaOptions{
-		Temperature:   c.config.Temperature,
-		TopP:          c.config.TopP,
-		TopK:          c.config.TopK,
-		RepeatPenalty: c.config.RepeatPenalty,
-		NumCtx:        c.config.ContextSize,
-		NumThread:     c.config.Threads,
-		UseMlock:      c.config.MemoryLock,
-		UseMMap:       c.config.MemoryMap,
-		F16KV:         c.config.MemoryF16,
+		Temperature:      c.config.Temperature,
+		TopP:             c.config.TopP,
+		TopK:             c.config.TopK,
+		RepeatPenalty:    c.config.RepeatPenalty,
+		NumCtx:           c.config.ContextSize,
+		NumThread:        c.config.Threads,
+		UseMlock:         c.config.MemoryLock,
+		UseMMap:          c.config.MemoryMap,
+		F16KV:            c.config.MemoryF16,
+		MinP:             c.config.MinP,
+		TypicalP:         c.config.TypicalP,
+		PresencePenalty:  c.config.PresencePenalty,
+		FrequencyPenalty: c.config.FrequencyPenalty,
+		RepeatLastN:      c.config.RepeatLastN,
 	}
 
 	// GPU相关设置
@@ -219,6 +231,12 @@ func (c *OllamaClient) cleanResponse(response string) string {
 	cleaned = strings.TrimSpace(cleaned)
 
 	return cleaned
+}
+
+func (c *OllamaClient) ChatStream(ctx context.Context, messages []Message) (<-chan string, error) {
+	// 使用模拟客户端进行流式响应
+	mockClient := NewMockClient()
+	return mockClient.ChatStream(ctx, messages)
 }
 
 // GetModelInfo 获取模型信息

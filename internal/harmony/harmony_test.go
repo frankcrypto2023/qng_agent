@@ -1,6 +1,7 @@
 package harmony
 
 import (
+	"qng_agent/internal/config"
 	"testing"
 )
 
@@ -87,7 +88,33 @@ func TestHarmonyEncoder_DecodeMessage(t *testing.T) {
 }
 
 func TestNewLlamaCppHarmonyClient(t *testing.T) {
-	client := NewLlamaCppHarmonyClient("http://localhost:8081")
+	// 创建默认配置
+	defaultConfig := &config.LlamaCppConfig{
+		Temperature:    0.8,
+		TopP:           0.95,
+		TopK:           40,
+		MaxTokens:      2000,
+		RepeatPenalty:  1.1,
+		CachePrompt:    true,
+		ReasoningFormat: "none",
+		Samplers:       "edkypmxt",
+		DynatempRange:  0,
+		DynatempExponent: 1,
+		MinP:           0.05,
+		TypicalP:       1,
+		XtcProbability: 0,
+		XtcThreshold:   0.1,
+		RepeatLastN:    64,
+		PresencePenalty: 0,
+		FrequencyPenalty: 0,
+		DryMultiplier:  0,
+		DryBase:        1.75,
+		DryAllowedLength: 2,
+		DryPenaltyLastN: -1,
+		TimingsPerToken: true,
+	}
+
+	client := NewLlamaCppHarmonyClient("http://localhost:8081", defaultConfig)
 
 	if client == nil {
 		t.Error("客户端创建失败")

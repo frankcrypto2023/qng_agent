@@ -111,3 +111,18 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []Message) (string, er
 
 	return response.Choices[0].Message.Content, nil
 }
+
+func (c *OpenAIClient) ChatStream(ctx context.Context, messages []Message) (<-chan string, error) {
+	// 使用模拟客户端进行流式响应
+	mockClient := NewMockClient()
+	return mockClient.ChatStream(ctx, messages)
+}
+
+func (c *OpenAIClient) GetModelInfo() map[string]interface{} {
+	return map[string]interface{}{
+		"provider": "openai",
+		"model":    c.config.Model,
+		"base_url": c.config.BaseURL,
+		"timeout":  c.config.Timeout,
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"qng_agent/internal/config"
 	"qng_agent/internal/harmony"
 	"strings"
 	"time"
@@ -107,7 +108,33 @@ func showHelp() {
 }
 
 func runStreamDemo(baseURL string) {
-	client := harmony.NewLlamaCppHarmonyClient(baseURL)
+	// 创建默认配置
+	defaultConfig := &config.LlamaCppConfig{
+		Temperature:      0.8,
+		TopP:             0.95,
+		TopK:             40,
+		MaxTokens:        2000,
+		RepeatPenalty:    1.1,
+		CachePrompt:      true,
+		ReasoningFormat:  "none",
+		Samplers:         "edkypmxt",
+		DynatempRange:    0,
+		DynatempExponent: 1,
+		MinP:             0.05,
+		TypicalP:         1,
+		XtcProbability:   0,
+		XtcThreshold:     0.1,
+		RepeatLastN:      64,
+		PresencePenalty:  0,
+		FrequencyPenalty: 0,
+		DryMultiplier:    0,
+		DryBase:          1.75,
+		DryAllowedLength: 2,
+		DryPenaltyLastN:  -1,
+		TimingsPerToken:  true,
+	}
+
+	client := harmony.NewLlamaCppHarmonyClient(baseURL, defaultConfig)
 
 	conv := harmony.Conversation{
 		Messages: []harmony.Message{

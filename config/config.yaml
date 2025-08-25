@@ -1,59 +1,18 @@
-agent:
-    name: QNG Agent
-    polling:
-        interval: 2
-        max_attempts: 15
-        timeout: 30
-    version: 1.0.0
-    workflow:
-        max_retries: 3
-        retry_delay: 5
-        timeout: 300
-    # 执行引擎选择: sop 或 langgraph
-    execution_engine: langgraph  # 可选值: sop, langgraph, auto
-    # auto: 自动选择，优先使用SOP，失败时回退到LangGraph
-    # sop: 强制使用SOP工作流引擎
-    # langgraph: 强制使用LangGraph引擎
-cache:
-    driver: memory
-    redis:
-        database: 0
-        host: localhost
-        password: ""
-        port: 6379
-        timeout: 5
-database:
-    driver: sqlite
-    mysql:
-        database: qng_agent
-        host: localhost
-        password: password
-        port: 3306
-        user: qng_agent
-    postgres:
-        database: qng_agent
-        host: localhost
-        password: password
-        port: 5432
-        ssl_mode: disable
-        user: qng_agent
-    sqlite:
-        path: data/qng_agent.db
-development:
-    cors: true
-    debug: true
-    hot_reload: true
-frontend:
-    api:
-        base_url: http://localhost:8080/api
-        timeout: 30
-    build_dir: ./frontend/build
-    enabled: true
-    host: localhost
-    port: 3000
-    websocket:
-        enabled: true
-        url: ws://localhost:8080/ws
+# QNG Agent 配置文件
+# 配置文件路径: config/config.yaml
+
+server:
+    host: "0.0.0.0"
+    port: 8080
+    mode: "release"
+
+logging:
+    level: "info"
+    format: "json"
+    output: "stdout"
+    file: "logs/qng_agent.log"
+
+# LLM 配置
 llm:
     # 本地 LlamaCpp 配置
     llamacpp:
@@ -65,16 +24,17 @@ llm:
         server_port: 8081                 # 启动端口
         
         # 模型配置
-        model_path: "/root/.cache/modelscope/hub/models/unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_0.gguf"  # 模型文件路径
+        # model_path: "/root/.cache/modelscope/hub/models/unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_0.gguf"  # 模型文件路径
+        model_path: " /root/.cache/modelscope/hub/models/unsloth/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q5_K_M.gguf"  # 模型文件路径
         
         # 性能参数
         context_size: 4096      # 上下文窗口大小
         threads: 4              # CPU线程数
-        temperature: 0.7        # 温度参数 (0.0-1.0)
-        top_p: 0.9             # Top-P采样
-        top_k: 40              # Top-K采样
-        max_tokens: 2000       # 最大生成令牌数
-        timeout: 60            # 超时时间(秒)
+        temperature: 0.8        # 温度参数 (0.0-1.0)
+        top_p: 0.95             # Top-P采样
+        top_k: 40               # Top-K采样
+        max_tokens: 2000        # 最大生成令牌数
+        timeout: 60             # 超时时间(秒)
         
         # GPU设置 (可选)
         gpu: true             # 是否使用GPU
@@ -86,8 +46,34 @@ llm:
         memory_f16: false      # 使用FP16精度
         memory_lock: false     # 锁定内存
         
-            # 重复惩罚
-    repeat_penalty: 1.1    # 重复惩罚系数
+        # 重复惩罚
+        repeat_penalty: 1.1    # 重复惩罚系数
+        
+        # 新增参数配置 - 参考您提供的参数
+        cache_prompt: true           # 缓存提示
+        reasoning_format: "none"     # 推理格式
+        samplers: "edkypmxt"         # 采样器
+        dynatemp_range: 0            # 动态温度范围
+        dynatemp_exponent: 1         # 动态温度指数
+        min_p: 0.05                  # 最小概率
+        typical_p: 1                 # 典型概率
+        xtc_probability: 0           # XTC概率
+        xtc_threshold: 0.1           # XTC阈值
+        repeat_last_n: 64            # 重复最后N个token
+        presence_penalty: 0          # 存在惩罚
+        frequency_penalty: 0         # 频率惩罚
+        dry_multiplier: 0            # DRY乘数
+        dry_base: 1.75               # DRY基础值
+        dry_allowed_length: 2        # DRY允许长度
+        dry_penalty_last_n: -1       # DRY惩罚最后N个token
+        timings_per_token: true      # 每个token的时间统计
+        
+        # 服务器启动参数
+        batch_size: 2048             # 批处理大小
+        user_batch_size: 2048        # 用户批处理大小
+        flash_attention: true        # 启用Flash Attention
+        reasoning_effort: "high"     # 推理努力程度
+        log_level: 1                 # 日志级别
 
     # Register合约配置
     register:
@@ -106,81 +92,82 @@ llm:
         timeout: 30
     modelscope:
         api_key: "3d885e31-789d-4a46-bb38-b849ae6e37b6"
-        model: Qwen/Qwen2.5-VL-72B-Instruct
-        base_url: https://api-inference.modelscope.cn/v1
+        model: "qwen/Qwen2.5-7B-Instruct"
+        base_url: "https://api.modelscope.cn/v1"
         timeout: 30
         max_tokens: 2000
-    openai:
-        api_key: ""
-        base_url: https://api.openai.com/v1
-        max_tokens: 2000
-        model: gpt-4
-        timeout: 30
-    
-    # 默认使用本地 LlamaCpp
-    provider: modelscope
-logging:
-    file: logs/qng_agent.log
-    format: json
-    level: info
-    output: stdout
+
+# MCP 服务器配置
 mcp:
-    # 新版标准化MCP服务器配置
     servers:
         qng:
             enabled: true
-            protocol: sse
-            url: http://localhost:9091/api/mcp
+            protocol: "sse"
+            url: "http://localhost:9091/api/mcp"
             timeout: 30
-            capabilities:
-                - execute_workflow
-                - get_session_status
-                - submit_signature
         metamask:
             enabled: true
-            protocol: stdio
-            command: ["node", "metamask-server.js"]
+            protocol: "stdio"
             timeout: 30
-            capabilities:
-                - connect_wallet
-                - sign_transaction
-                - get_balance
         file_system:
             enabled: true
-            protocol: sse
-            url: http://localhost:8084/api/mcp
+            protocol: "sse"
+            url: "http://localhost:8084/api/mcp"
             timeout: 30
-            capabilities:
-                - read_file
-                - write_file
-                - list_directory
+
+# 智能体配置
+agent:
+    name: "QNG Agent"
+    version: "1.0.0"
+    execution_engine: "sop"
+    workflow:
+        timeout: 300
+        max_retries: 3
+        retry_delay: 5
+    polling:
+        interval: 2
+        timeout: 30
+        max_attempts: 15
+
+# 前端配置
+frontend:
+    enabled: true
+    host: "localhost"
+    port: 3000
+    build_dir: "frontend/build"
+    api:
+        base_url: "http://localhost:8080/api"
+        timeout: 30
+    websocket:
+        enabled: true
+        url: ws://localhost:8080/ws
+
+# 数据库配置
+database:
+    driver: "sqlite"
+    sqlite:
+        path: "data/qng_agent.db"
+
+# 缓存配置
+cache:
+    enabled: true
+    type: "memory"
+    ttl: 3600
+
+# 安全配置
+security:
+    enabled: true
+    jwt_secret: "your-secret-key"
+    cors_origins: ["http://localhost:3000"]
+
+# 监控配置
 monitoring:
     enabled: true
-    health_check:
-        enabled: true
-        path: /health
-        port: 8080
-    metrics:
-        enabled: true
-        port: 9090
-security:
-    cors:
-        enabled: true
-        headers:
-            - Content-Type
-            - Authorization
-        methods:
-            - GET
-            - POST
-            - PUT
-            - DELETE
-            - OPTIONS
-        origins:
-            - http://localhost:3000
-            - http://localhost:8080
-    jwt_expiry: 24h
-    jwt_secret: ${JWT_SECRET}
-server:
-    host: 0.0.0.0
-    mode: release
-    port: 8080
+    metrics_port: 9090
+    health_check: true
+
+# 开发配置
+development:
+    debug: false
+    hot_reload: true
+    log_level: "debug"
