@@ -14,22 +14,14 @@
             "id": "ai_analyzer",
             "type": "ai_model",
             "name": "AI Data Analyzer",
-            "config": {
-                "model": "gpt-4",
-                "temperature": 0.7,
-                "max_tokens": 1000
-            }
+            "prompt_template": "You are a helpful assistant that analyzes data.",
+           
         },
         {
             "id": "web3_reader",
             "type": "web3_contract",
             "name": "Smart Contract Reader",
-            "web3_config": {
-                "contract_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
-                "chain_id": 1,
-                "method": "getData",
-                "parameters": ["param1", "param2"]
-            }
+           
         },
         {
             "id": "decision_node",
