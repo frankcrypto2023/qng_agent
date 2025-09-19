@@ -65,7 +65,7 @@ export function Sidebar({
 
       {/* Sessions List */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        {sessions.length === 0 ? (
+        {!sessions || sessions.length === 0 ? (
           <div className="text-center text-gray-500 py-8">
             <MessageSquare className="w-12 h-12 mx-auto mb-3 text-gray-300" />
             <p>No conversations yet</p>
@@ -92,7 +92,7 @@ export function Sidebar({
                   <p className="text-sm text-gray-500 mt-1">
                     {formatTimestamp(new Date(session.updatedAt))}
                   </p>
-                  {session.messages.length > 0 && (
+                  {session.messages && session.messages.length > 0 && (
                     <p className="text-sm text-gray-400 mt-1 truncate">
                       {session.messages[session.messages.length - 1].content}
                     </p>

@@ -34,7 +34,7 @@ func New(cfg *config.Config) *Server {
 	
 	// Load settings and configure LLM client
 	settings, err := storage.LoadSettings()
-	if err == nil && settings.LLMProvider.URL != "" {
+	if err == nil && settings.LLMProvider.URL != "" && settings.LLMProvider.Token != "" {
 		llmManager.UpdateClientFromConfig(settings.LLMProvider)
 	}
 

@@ -210,6 +210,10 @@ func (m *Manager) SetDefaultClient(client Client) {
 
 // GetClient returns the default LLM client
 func (m *Manager) GetClient() Client {
+	if m.defaultClient == nil {
+		// Return a dummy client for testing if no client is configured
+		return &DummyClient{}
+	}
 	return m.defaultClient
 }
 
@@ -223,4 +227,26 @@ func (m *Manager) UpdateClientFromConfig(config types.LLMProviderConfig) {
 		0.7,  // temperature
 	)
 	m.SetDefaultClient(client)
+}
+
+// DummyClient is a simple client for testing when no LLM is configured
+type DummyClient struct{}
+
+// StreamCompletion implements Client interface with dummy responses
+func (d *DummyClient) StreamCompletion(ctx context.Context, messages []types.ChatMessage, onChunk func(string), onComplete func()) error {
+	response := "Hello! I'm a QNG Intelligent Agent. Currently, no LLM provider is configured, so I'm running in demo mode. Please configure your LLM settings in the settings panel to enable full functionality."
+	
+	// Simulate streaming by sending chunks
+	for _, char := range response {
+		onChunk(string(char))
+		time.Sleep(50 * time.Millisecond) // Simulate typing speed
+	}
+	
+	onComplete()
+	return nil
+}
+
+// GetCompletion implements Client interface with dummy responses
+func (d *DummyClient) GetCompletion(ctx context.Context, messages []types.ChatMessage) (string, error) {
+	return "Hello! I'm a QNG Intelligent Agent. Currently, no LLM provider is configured, so I'm running in demo mode. Please configure your LLM settings in the settings panel to enable full functionality.", nil
 }

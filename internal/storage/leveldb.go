@@ -237,6 +237,11 @@ func (s *LevelDBStorage) GetMessages(sessionID string) ([]types.ChatMessage, err
 		return nil, fmt.Errorf("failed to iterate messages: %w", err)
 	}
 
+	// Ensure we return an empty slice instead of nil
+	if messages == nil {
+		messages = []types.ChatMessage{}
+	}
+
 	// Sort messages by timestamp
 	sort.Slice(messages, func(i, j int) bool {
 		return messages[i].Timestamp.Before(messages[j].Timestamp)

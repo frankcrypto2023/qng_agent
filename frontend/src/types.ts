@@ -36,7 +36,7 @@ export interface AppSettings {
 
 // API types
 export interface SendMessageRequest {
-  sessionId: string;
+  session_id: string;
   message: string;
 }
 

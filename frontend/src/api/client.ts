@@ -94,8 +94,9 @@ class APIClient {
         const lines = chunk.split('\n')
 
         for (const line of lines) {
+          // Handle Server-Sent Events format: "data: content"
           if (line.startsWith('data: ')) {
-            const data = line.slice(6)
+            const data = line.slice(6) // Remove "data: " (including space)
             
             if (data === '[DONE]') {
               onComplete(messageId)
@@ -104,15 +105,17 @@ class APIClient {
 
             try {
               const parsed = JSON.parse(data)
-              if (parsed.messageId) {
-                messageId = parsed.messageId
+              if (parsed.message_id) {
+                messageId = parsed.message_id
               }
               if (parsed.content) {
                 onChunk(parsed.content)
               }
             } catch (e) {
-              // Handle non-JSON chunks
-              onChunk(data)
+              // Handle non-JSON chunks - ignore empty lines and events
+              if (data && data !== '') {
+                console.log('Non-JSON SSE data:', data)
+              }
             }
           }
         }

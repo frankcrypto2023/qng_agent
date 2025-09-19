@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"qng-agent/internal/graph"
 	"qng-agent/internal/llm"
 	"qng-agent/internal/session"
 	"qng-agent/internal/storage"
@@ -18,14 +19,18 @@ import (
 type Handler struct {
 	sessionManager *session.Manager
 	llmManager     *llm.Manager
+	graphManager   *graph.LLMGraphManager
 	storage        storage.Storage
 }
 
 // NewHandler creates a new handler
 func NewHandler(sessionManager *session.Manager, llmManager *llm.Manager, storage storage.Storage) *Handler {
+	graphManager := graph.NewLLMGraphManager(llmManager.GetClient())
+	
 	return &Handler{
 		sessionManager: sessionManager,
 		llmManager:     llmManager,
+		graphManager:   graphManager,
 		storage:        storage,
 	}
 }
@@ -55,6 +60,11 @@ func (h *Handler) GetSessions(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get sessions"})
 		return
+	}
+
+	// Ensure we return an empty array instead of null
+	if sessions == nil {
+		sessions = []types.ChatSession{}
 	}
 
 	c.JSON(http.StatusOK, sessions)
@@ -121,7 +131,7 @@ func (h *Handler) StreamChat(c *gin.Context) {
 		return
 	}
 
-	// Get session history for context (currently not used in simplified implementation)
+	// Get session history for context (not used in simplified mode)
 	_, err = h.sessionManager.GetSessionHistory(req.SessionID)
 	if err != nil {
 		c.SSEvent("error", gin.H{"error": "Failed to get session history"})
@@ -135,23 +145,33 @@ func (h *Handler) StreamChat(c *gin.Context) {
 	// Create assistant message
 	assistantMessageID := uuid.New().String()
 	
-	// Send message ID first
-	c.SSEvent("data", gin.H{"message_id": assistantMessageID})
+	// Send message ID first using standard SSE format
+	fmt.Fprintf(c.Writer, "data: %s\n\n", `{"message_id":"`+assistantMessageID+`"}`)
+	c.Writer.Flush()
 
-	// Process message through LLM and stream response
+	// Process message through graph and stream response
+	// For testing, let's try direct LLM call first
 	chatMessages := []types.ChatMessage{
 		{Role: "user", Content: req.Message},
 	}
 	
 	response, err := h.llmManager.GetClient().GetCompletion(ctx, chatMessages)
 	if err != nil {
-		c.SSEvent("error", gin.H{"error": "Failed to process message"})
+		c.SSEvent("error", gin.H{"error": "Failed to process message: " + err.Error()})
 		return
 	}
+	
+	// Alternative: Use graph workflow (commented out for testing)
+	// response, needsAuth, err := h.graphManager.ProcessUserMessage(ctx, req.Message, history[:len(history)-1])
+	// if err != nil {
+	//     c.SSEvent("error", gin.H{"error": "Failed to process message"})
+	//     return
+	// }
+	needsAuth := false
 
 	// Stream the response character by character
 	for i, char := range response {
-		c.SSEvent("data", gin.H{"content": string(char)})
+		fmt.Fprintf(c.Writer, "data: %s\n\n", `{"content":"`+string(char)+`"}`)
 		c.Writer.Flush()
 		
 		// Add small delay for realistic streaming effect
@@ -160,18 +180,16 @@ func (h *Handler) StreamChat(c *gin.Context) {
 		}
 	}
 
-	// If authentication is needed, send auth request (simplified logic)
-	// This could be enhanced with more sophisticated intent analysis
-	if false { // Disabled for now since we removed graph workflow
-		c.SSEvent("data", gin.H{
-			"need_auth": true,
-			"auth_type": "wallet_connection",
-			"message":   "Please connect your wallet to continue",
-		})
+	// If authentication is needed, send auth request
+	if needsAuth {
+		authData := `{"need_auth":true,"auth_type":"wallet_connection","message":"Please connect your wallet to continue"}`
+		fmt.Fprintf(c.Writer, "data: %s\n\n", authData)
+		c.Writer.Flush()
 	}
 
 	// Send completion signal
-	c.SSEvent("data", "[DONE]")
+	fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+	c.Writer.Flush()
 
 	// Save assistant message
 	assistantMessage := &types.ChatMessage{
@@ -209,6 +227,7 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 	// Update LLM client if configuration changed
 	if settings.LLMProvider.URL != "" && settings.LLMProvider.Token != "" {
 		h.llmManager.UpdateClientFromConfig(settings.LLMProvider)
+		h.graphManager = graph.NewLLMGraphManager(h.llmManager.GetClient())
 	}
 
 	// Save settings

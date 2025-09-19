@@ -37,9 +37,10 @@ function App() {
   const loadSessions = async () => {
     try {
       const loadedSessions = await apiClient.getSessions()
-      setSessions(loadedSessions)
+      setSessions(loadedSessions || [])
     } catch (error) {
       console.error('Failed to load sessions:', error)
+      setSessions([]) // Ensure sessions is always an array
     }
   }
 
@@ -104,22 +105,29 @@ function App() {
     setIsStreaming(true)
     setStreamingMessage('')
 
+    // Use a ref to track the accumulated streaming content
+    let accumulatedContent = ''
+
     // Send message and handle streaming response
     await apiClient.sendMessage(
       {
-        sessionId: currentSession.id,
+        session_id: currentSession.id,
         message: content
       },
       // onChunk: Accumulate streaming content
       (chunk: string) => {
-        setStreamingMessage(prev => prev + chunk)
+        accumulatedContent += chunk
+        setStreamingMessage(accumulatedContent)
       },
       // onComplete: Finalize the assistant message
       (messageId: string) => {
+        console.log('Message completed with ID:', messageId)
+        console.log('Accumulated content:', accumulatedContent)
+        
         const assistantMessage: ChatMessageType = {
           id: messageId,
           role: 'assistant',
-          content: streamingMessage,
+          content: accumulatedContent, // Use the accumulated content
           timestamp: new Date()
         }
 
@@ -129,6 +137,8 @@ function App() {
           messages: [...updatedSession.messages, assistantMessage],
           updatedAt: new Date()
         }
+        
+        console.log('Final session messages:', finalSession.messages)
         setCurrentSession(finalSession)
 
         // Update sessions list
