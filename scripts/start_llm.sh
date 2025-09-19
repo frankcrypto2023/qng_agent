@@ -1,1 +1,0 @@
-llama-server --model "/root/.cache/modelscope/hub/models/unsloth/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q5_K_M.gguf" --port 8081 --ctx-size 4096 --threads 4 --temp 0.7 --top-p 0.9 --top-k 40 --repeat-penalty 1.1 --gpu-layers 20

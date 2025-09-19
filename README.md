@@ -1,343 +1,243 @@
-# QNG Agent - SOP vs LangGraph 工作流引擎对比
+# QNG Intelligent Agent
 
-## 概述
+A full-stack conversational AI interface powered by a dynamic, graph-based workflow engine for Web3 and blockchain operations.
 
-QNG Agent 支持两种不同的工作流引擎来处理区块链操作：
+## 🚀 Features
 
-1. **SOP (Standard Operating Procedure)** - 基于角色的结构化工作流
-2. **LangGraph** - 基于图的动态工作流
+- **ChatGPT-style Interface**: Clean, modern UI for natural conversation
+- **LLM Graph Workflow Engine**: Dynamic intent analysis and execution
+- **Session Management**: Persistent chat history with context awareness  
+- **Streaming Responses**: Real-time character-by-character response streaming
+- **MCP Tool Integration**: Support for Model Context Protocol tools
+- **Web3 Workflows**: Smart contract interactions and blockchain operations
+- **Settings Panel**: Configurable LLM providers and MCP servers
 
-## 架构对比
+## 🏗️ Architecture
 
-### SOP 架构
+### Frontend (React + TypeScript)
+- Modern React with TypeScript and Tailwind CSS
+- Real-time streaming chat interface
+- Session management and history
+- Settings configuration for LLM and MCP servers
+- Blockchain-themed design elements
 
+### Backend (Golang)
+- Gin HTTP framework with SQLite storage
+- Channel-based session management (harmony-style)
+- LLM Graph workflow engine using QNG graph library
+- Server-Sent Events (SSE) for response streaming
+- Intent analysis and dynamic workflow routing
+
+### Workflow Engine
+The core LLM Graph uses **官方 QNG graph 库**直接从 `github.com/Qitmeer/qng/blob/dev/2.1/graph/graph.go` 并处理每个用户消息：
+
+1. **Intent Analysis**: 使用 LLM 理解用户请求
+2. **Tool Routing**: 通过条件边路由到 MCP 工具或 Web3 工作流  
+3. **Execution**: 执行工具/工作流，支持用户确认
+4. **Response Generation**: 生成自然语言响应
+
+#### 真正的 QNG Graph 集成
+- 使用官方 QNG graph API: `graph.NewMessageGraph()`, `AddNode()`, `AddConditionalEdge()`
+- 基于消息的图执行使用 `llms.MessageContent` (LangChain 标准)
+- 支持动态工作流创建和条件路由执行
+- 完全兼容 QNG 生态系统架构
+
+## 📋 Supported Scenarios
+
+### 1. MCP Tool Queries
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Role Manager  │    │  Workflow Def   │    │  State Manager  │
-│   (角色管理器)    │    │  (工作流定义)    │    │  (状态管理器)    │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         ▼                       ▼                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              SOP Workflow Engine                               │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │
-│  │   Step 1    │  │   Step 2    │  │   Step 3    │          │
-│  │ (Analyze)   │  │ (Risk Mgmt) │  │ (Execute)   │          │
-│  └─────────────┘  └─────────────┘  └─────────────┘          │
-└─────────────────────────────────────────────────────────────────┘
+User: "What is the stateroot for order=10000 on node http://127.0.0.1:8545?"
+→ Extracts parameters → Calls stateroot tool → Returns formatted result
 ```
 
-### LangGraph 架构
-
+### 2. Comparative Analysis  
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   LLM Client    │    │ Contract Mgr    │    │   RPC Client    │
-│   (LLM客户端)    │    │ (合约管理器)     │    │  (RPC客户端)     │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         ▼                       ▼                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    LangGraph Engine                            │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │
-│  │   Node 1    │◄─┤   Node 2    │◄─┤   Node 3    │          │
-│  │(Decomposer) │  │(Executor)   │  │(Validator)  │          │
-│  └─────────────┘  └─────────────┘  └─────────────┘          │
-└─────────────────────────────────────────────────────────────────┘
+User: "Compare stateroot for order=10000 between http://127.0.0.1:8545 and http://127.0.0.2:8545"
+→ Parallel tool execution → Comparison analysis → Difference report
 ```
 
-## 详细对比
+### 3. Web3 Workflows
+```
+User: "I want to swap 1 MEER for USDT using Metamask"
+→ Loads token swap workflow → Wallet connection → Balance check → Transaction signing
+```
 
-### 1. 设计理念
+## 🛠️ Setup
 
-| 特性 | SOP | LangGraph |
-|------|-----|-----------|
-| **设计理念** | 基于角色的结构化流程 | 基于图的动态流程 |
-| **核心概念** | 标准操作程序 (Standard Operating Procedure) | 语言图 (Language Graph) |
-| **灵感来源** | MetaGPT 的 SOP 概念 | LangChain 的图执行模型 |
-| **流程控制** | 预定义的步骤序列 | 动态节点执行 |
+### Prerequisites
+- Node.js 18+ 
+- Go 1.21+
+- Git
 
-### 2. 工作流定义
+### Quick Start
 
-#### SOP 工作流定义
-```go
-// 预定义的工作流步骤
-workflow := &WorkflowDefinition{
-    Type: WorkflowCompound,
-    Steps: []WorkflowStep{
-        {
-            ID:     "analyze",
-            Name:   "Analyze Request",
-            Role:   roles.RoleStrategyAnalyst,
-            Input:  []string{},
-            Output: string(protocol.MessageTypeStrategy),
-        },
-        {
-            ID:     "assess_risk",
-            Name:   "Assess Risk",
-            Role:   roles.RoleRiskManager,
-            Input:  []string{"analyze"},
-            Output: string(protocol.MessageTypeRiskAssessment),
-        },
-        // ... 更多步骤
+1. **Clone and setup**:
+```bash
+git clone <repository>
+cd qng_agent
+./setup.sh
+```
+
+2. **Start development servers**:
+```bash
+./scripts/start.sh
+```
+
+3. **Access the application**:
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8080
+- Health check: http://localhost:8080/api/health
+
+### Manual Setup
+
+**Frontend**:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+**Backend**:
+```bash
+go mod tidy
+go build -o bin/qng-agent cmd/main.go
+./bin/qng-agent
+```
+
+## ⚙️ Configuration
+
+### Environment Variables
+- `PORT`: Server port (default: 8080)
+- `HOST`: Server host (default: 0.0.0.0)  
+- `DB_PATH`: SQLite database path (default: ./data/qng_agent.db)
+- `CONFIG_FILE`: JSON config file path (optional)
+
+### LLM Provider Setup
+Configure in the Settings panel:
+- **Provider Name**: OpenAI, Anthropic, etc.
+- **API URL**: https://api.openai.com/v1
+- **Token**: Your API key
+- **Model**: gpt-4, claude-3-opus, etc.
+
+### MCP Servers
+Add MCP servers in Settings:
+- **Name**: Descriptive name
+- **URL**: SSE endpoint URL
+- **Enabled**: Toggle on/off
+
+## 🔌 API Reference
+
+### Sessions
+- `POST /api/sessions` - Create new session
+- `GET /api/sessions` - List all sessions  
+- `GET /api/sessions/:id` - Get session details
+- `DELETE /api/sessions/:id` - Delete session
+
+### Chat
+- `POST /api/chat/stream` - Send message with streaming response
+
+### Settings  
+- `GET /api/settings` - Get current settings
+- `PUT /api/settings` - Update settings
+
+## 📊 Workflow Configuration
+
+Web3 workflows are defined in JSON format:
+
+```json
+{
+  "name": "Token Swap Workflow",
+  "description": "Swap tokens using smart contracts",
+  "nodes": [
+    {
+      "id": "wallet_connect",
+      "type": "wallet",
+      "name": "Connect Wallet"
     },
-}
-```
-
-#### LangGraph 工作流定义
-```go
-// 动态节点注册
-nodes := []Node{
-    NewTaskDecomposerNode(llm, contractManager),
-    NewSwapExecutorNode(contractManager),
-    NewStakeExecutorNode(contractManager),
-    NewSignatureValidatorNode(rpcClient, txConfig),
-    NewResultAggregatorNode(),
-}
-
-// 图结构构建
-lg.buildGraph()
-```
-
-### 3. 执行流程对比
-
-#### SOP 执行流程
-```
-1. 用户请求 → 2. 工作流类型识别 → 3. 创建执行上下文
-4. 按步骤执行 → 5. 角色分配 → 6. 消息传递
-7. 签名请求 → 8. 用户签名 → 9. 继续下一步
-10. 完成工作流
-```
-
-#### LangGraph 执行流程
-```
-1. 用户请求 → 2. 任务分解节点 → 3. 动态路由
-4. 执行节点 → 5. 状态更新 → 6. 下一个节点
-7. 签名验证 → 8. 结果聚合 → 9. 完成
-```
-
-### 4. 复合操作处理
-
-#### SOP 复合操作
-```go
-// 复合操作处理器
-func (ch *CompoundHandler) ProcessCompoundOperation(ctx context.Context, userRequest string) (*WorkflowResult, error) {
-    // 1. 分析复合请求
-    compoundOp, err := ch.analyzeCompoundRequest(userRequest)
-    
-    // 2. 创建执行上下文
-    execCtx, err := ch.createCompoundExecutionContext(compoundOp, userRequest)
-    
-    // 3. 生成第一个签名请求
-    if compoundOp.CurrentStep < len(compoundOp.Operations) {
-        firstOp := &compoundOp.Operations[compoundOp.CurrentStep]
-        signatureRequest := ch.generateSignatureRequestForOperation(firstOp, compoundOp)
-        // ...
+    {
+      "id": "balance_check", 
+      "type": "contract_read",
+      "name": "Check Balance"
+    },
+    {
+      "id": "swap_execute",
+      "type": "contract_write", 
+      "name": "Execute Swap"
     }
+  ],
+  "edges": [
+    {"source": "wallet_connect", "target": "balance_check"},
+    {"source": "balance_check", "target": "swap_execute"}
+  ]
 }
 ```
 
-#### LangGraph 复合操作
+## 🧪 Development
+
+### Project Structure
+```
+qng_agent/
+├── frontend/          # React frontend
+│   ├── src/
+│   │   ├── components/    # React components
+│   │   ├── api/          # API client
+│   │   └── types.ts      # TypeScript types
+├── cmd/               # Go main entry point
+├── internal/          # Go backend code
+│   ├── config/           # Configuration
+│   ├── handlers/         # HTTP handlers
+│   ├── session/          # Session management
+│   ├── storage/          # Database layer
+│   ├── llm/             # LLM client
+│   ├── graph/           # Workflow engine (使用官方 QNG graph)
+│   └── types/           # Go types
+├── scripts/           # Utility scripts
+└── data/             # SQLite database
+```
+
+### 官方 QNG Graph 工作流架构
+
+工作流引擎使用真正的 QNG graph 执行：
+
 ```go
-// 动态节点执行
-func (lg *LangGraph) ExecuteWorkflow(ctx context.Context, message string) (*ProcessResult, error) {
-    // 1. 创建初始状态
-    initialState := graph.State{
-        "input": &NodeInput{
-            Data: map[string]any{"message": message},
-        },
-    }
-    
-    // 2. 执行图
-    result, err := lg.r.Invoke(ctx, initialState)
-    
-    // 3. 处理结果
-    return lg.processResult(result)
-}
+// 使用官方 QNG graph API
+messageGraph := graph.NewMessageGraph()
+messageGraph.AddNode("intent_analysis", intentAnalysisNode)
+messageGraph.AddNode("mcp_tool_execution", mcpToolExecutionNode)
+messageGraph.AddNode("web3_workflow_execution", web3WorkflowExecutionNode)
+messageGraph.AddNode("response_generation", responseGenerationNode)
+
+// 添加条件路由
+messageGraph.AddConditionalEdge("intent_analysis", routeAfterIntent)
+messageGraph.AddEdge("mcp_tool_execution", "response_generation")
+messageGraph.AddEdge("web3_workflow_execution", "response_generation")
+
+// 使用 llms.MessageContent 执行
+runnable, _ := messageGraph.Compile()
+result, _ := runnable.Invoke(ctx, initialMessages)
 ```
 
-### 5. 状态管理
+### Adding New MCP Tools
+1. Update intent analysis in `internal/graph/manager.go`
+2. Add tool execution logic in `MCPToolNode`
+3. Configure tool parameters and response handling
 
-#### SOP 状态管理
-```go
-type WorkflowExecutionContext struct {
-    ID          string
-    WorkflowDef *WorkflowDefinition
-    StartTime   time.Time
-    State       map[string]*StepState
-    Messages    map[string]*protocol.StructuredMessage
-}
+### Adding New Web3 Workflows  
+1. Define workflow JSON configuration
+2. Add workflow loading in `Web3WorkflowNode`
+3. Implement workflow-specific execution logic
 
-type StepState struct {
-    StepID    string
-    Status    string
-    StartTime time.Time
-    EndTime   time.Time
-    Error     string
-    Output    *protocol.StructuredMessage
-}
-```
+## 🚨 Security Notes
 
-#### LangGraph 状态管理
-```go
-type NodeInput struct {
-    Data    map[string]any `json:"data"`
-    Context map[string]any `json:"context"`
-}
+- All LLM API calls are proxied through the backend
+- API keys are stored securely and not exposed to frontend
+- Database includes proper foreign key constraints
+- CORS is configured for development (update for production)
 
-type NodeOutput struct {
-    Data         map[string]any `json:"data"`
-    NextNodes    []string       `json:"next_nodes"`
-    NeedUserAuth bool           `json:"need_user_auth"`
-    AuthRequest  any            `json:"auth_request,omitempty"`
-    Completed    bool           `json:"completed"`
-}
-```
+## 📝 License
 
-## 优缺点对比
+[Add your license here]
 
-### SOP 优势
+## 🤝 Contributing
 
-✅ **结构化强**
-- 预定义的工作流步骤
-- 明确的角色分工
-- 可预测的执行路径
-
-✅ **易于理解和维护**
-- 清晰的步骤定义
-- 直观的角色分配
-- 简单的状态管理
-
-✅ **适合标准化操作**
-- 复合操作处理
-- 分步签名流程
-- 错误处理和回滚
-
-✅ **性能稳定**
-- 无 LLM 依赖
-- 快速执行
-- 资源消耗低
-
-### SOP 劣势
-
-❌ **灵活性有限**
-- 固定的工作流结构
-- 难以动态调整
-- 扩展性受限
-
-❌ **智能程度较低**
-- 缺乏 LLM 推理
-- 无法处理复杂逻辑
-- 依赖预定义规则
-
-### LangGraph 优势
-
-✅ **高度灵活**
-- 动态节点执行
-- 可配置的图结构
-- 支持复杂逻辑
-
-✅ **智能推理**
-- LLM 驱动的决策
-- 自然语言理解
-- 上下文感知
-
-✅ **可扩展性强**
-- 易于添加新节点
-- 支持自定义逻辑
-- 模块化设计
-
-✅ **适应性强**
-- 处理复杂场景
-- 动态路由
-- 智能错误处理
-
-### LangGraph 劣势
-
-❌ **复杂性高**
-- 学习曲线陡峭
-- 调试困难
-- 状态管理复杂
-
-❌ **性能开销**
-- LLM 调用延迟
-- 资源消耗较高
-- 执行时间较长
-
-❌ **稳定性挑战**
-- LLM 响应不稳定
-- 错误处理复杂
-- 依赖外部服务
-
-## 使用场景建议
-
-### 选择 SOP 的场景
-
-🟢 **标准化操作**
-- 代币兑换 (swap)
-- 代币质押 (stake)
-- 复合操作 (compound)
-
-🟢 **性能要求高**
-- 高频交易
-- 实时响应
-- 资源受限环境
-
-🟢 **可预测流程**
-- 固定的业务逻辑
-- 明确的步骤序列
-- 简单的错误处理
-
-### 选择 LangGraph 的场景
-
-🟢 **复杂业务逻辑**
-- 多步骤决策
-- 动态路由
-- 智能分析
-
-🟢 **自然语言交互**
-- 用户意图理解
-- 上下文感知
-- 智能推荐
-
-🟢 **创新性功能**
-- 实验性功能
-- 快速原型
-- 灵活扩展
-
-## 实际应用示例
-
-### SOP 复合操作示例
-```
-用户请求: "我要将1MEER兑换成MTK，再将对应的MTK质押"
-
-SOP 处理流程:
-1. 分析请求 → 识别为复合操作
-2. 分解操作 → [swap, stake]
-3. 生成第一个签名请求 → swap 操作
-4. 用户签名 → 验证签名
-5. 生成第二个签名请求 → stake 操作
-6. 用户签名 → 验证签名
-7. 完成复合操作
-```
-
-### LangGraph 智能分析示例
-```
-用户请求: "我想投资一些代币，但担心风险"
-
-LangGraph 处理流程:
-1. 任务分解节点 → 分析用户意图
-2. 风险评估节点 → 评估投资风险
-3. 策略推荐节点 → 生成投资建议
-4. 执行计划节点 → 制定执行计划
-5. 签名验证节点 → 验证用户授权
-6. 结果聚合节点 → 生成最终报告
-```
-
-## 总结
-
-SOP 和 LangGraph 各有其适用场景：
-
-- **SOP** 适合标准化、高性能、可预测的场景
-- **LangGraph** 适合复杂、智能、灵活的场景
-
-在实际应用中，可以根据具体需求选择合适的引擎，或者结合两者的优势来构建混合解决方案。 
+[Add contribution guidelines here]

@@ -1,23 +1,5 @@
-agent
-chain
-mcp
-
 node_modules
-.env
+node_modules
 
-# Hardhat files
-/cache
-/artifacts
-
-# TypeChain files
-/typechain
-/typechain-types
-
-# solidity-coverage files
-/coverage
-/coverage.json
-
-# Hardhat Ignition default folder for deployments against a local node
-ignition/deployments/chain-31337
-data/sessions.db
-frontend/node_modules
+qng-agent
+qng-agent-test
