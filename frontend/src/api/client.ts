@@ -34,7 +34,8 @@ class APIClient {
       throw new Error('Failed to fetch sessions')
     }
     
-    return response.json()
+    const data = await response.json()
+    return this.transformSessions(data)
   }
 
   async getSession(sessionId: string): Promise<ChatSession> {
@@ -44,7 +45,8 @@ class APIClient {
       throw new Error('Failed to fetch session')
     }
     
-    return response.json()
+    const data = await response.json()
+    return this.transformSession(data)
   }
 
   async deleteSession(sessionId: string): Promise<void> {
@@ -147,6 +149,30 @@ class APIClient {
     
     if (!response.ok) {
       throw new Error('Failed to update settings')
+    }
+  }
+
+  // Helper methods for transforming API responses
+  private transformSession(data: any): ChatSession {
+    return {
+      id: data.id,
+      title: data.title,
+      messages: data.messages ? data.messages.map(this.transformMessage) : [],
+      createdAt: new Date(data.created_at),
+      updatedAt: new Date(data.updated_at)
+    }
+  }
+
+  private transformSessions(data: any[]): ChatSession[] {
+    return data.map(session => this.transformSession(session))
+  }
+
+  private transformMessage(data: any) {
+    return {
+      id: data.id,
+      role: data.role,
+      content: data.content,
+      timestamp: new Date(data.timestamp)
     }
   }
 }

@@ -1,3 +1,4 @@
+@import 'highlight.js/styles/github-dark.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -31,5 +32,43 @@
   
   .blockchain-icon {
     @apply text-blockchain-primary;
+  }
+
+  /* Markdown and code highlighting overrides */
+  .hljs {
+    background: #1f2937 !important;
+    color: #f9fafb !important;
+    border-radius: 0.5rem;
+  }
+
+  .hljs-keyword,
+  .hljs-built_in {
+    color: #8b5cf6 !important;
+  }
+
+  .hljs-string,
+  .hljs-attr {
+    color: #10b981 !important;
+  }
+
+  .hljs-number {
+    color: #f59e0b !important;
+  }
+
+  .hljs-comment {
+    color: #6b7280 !important;
+  }
+
+  /* Custom prose styling for better readability */
+  .prose {
+    max-width: none;
+  }
+
+  .prose pre {
+    margin: 1rem 0;
+  }
+
+  .prose code {
+    font-weight: 400;
   }
 }

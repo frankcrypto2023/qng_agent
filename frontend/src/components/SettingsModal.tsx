@@ -11,12 +11,12 @@ interface SettingsModalProps {
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [settings, setSettings] = useState<AppSettings>({
-    mcpServers: [],
-    llmProvider: {
+    mcp_servers: [],
+    llm_provider: {
       name: '',
       url: '',
       token: '',
-      modelName: ''
+      model_name: ''
     }
   })
   const [isLoading, setIsLoading] = useState(false)
@@ -57,8 +57,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const addMCPServer = () => {
     setSettings(prev => ({
       ...prev,
-      mcpServers: [
-        ...prev.mcpServers,
+      mcp_servers: [
+        ...prev.mcp_servers,
         { name: '', url: '', enabled: true }
       ]
     }))
@@ -67,7 +67,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const updateMCPServer = (index: number, updates: Partial<MCPServerConfig>) => {
     setSettings(prev => ({
       ...prev,
-      mcpServers: prev.mcpServers.map((server, i) => 
+      mcp_servers: prev.mcp_servers.map((server, i) => 
         i === index ? { ...server, ...updates } : server
       )
     }))
@@ -76,7 +76,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const removeMCPServer = (index: number) => {
     setSettings(prev => ({
       ...prev,
-      mcpServers: prev.mcpServers.filter((_, i) => i !== index)
+      mcp_servers: prev.mcp_servers.filter((_, i) => i !== index)
     }))
   }
 
@@ -84,7 +84,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const updateLLMProvider = (updates: Partial<LLMProviderConfig>) => {
     setSettings(prev => ({
       ...prev,
-      llmProvider: { ...prev.llmProvider, ...updates }
+      llm_provider: { ...prev.llm_provider, ...updates }
     }))
   }
 
@@ -123,7 +123,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       </label>
                       <input
                         type="text"
-                        value={settings.llmProvider.name}
+                        value={settings.llm_provider.name}
                         onChange={(e) => updateLLMProvider({ name: e.target.value })}
                         placeholder="e.g., OpenAI, Anthropic"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blockchain-primary focus:border-transparent"
@@ -135,8 +135,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       </label>
                       <input
                         type="text"
-                        value={settings.llmProvider.modelName}
-                        onChange={(e) => updateLLMProvider({ modelName: e.target.value })}
+                        value={settings.llm_provider.model_name}
+                        onChange={(e) => updateLLMProvider({ model_name: e.target.value })}
                         placeholder="e.g., gpt-4, claude-3-opus"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blockchain-primary focus:border-transparent"
                       />
@@ -148,7 +148,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </label>
                     <input
                       type="url"
-                      value={settings.llmProvider.url}
+                      value={settings.llm_provider.url}
                       onChange={(e) => updateLLMProvider({ url: e.target.value })}
                       placeholder="https://api.openai.com/v1"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blockchain-primary focus:border-transparent"
@@ -160,7 +160,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </label>
                     <input
                       type="password"
-                      value={settings.llmProvider.token}
+                      value={settings.llm_provider.token}
                       onChange={(e) => updateLLMProvider({ token: e.target.value })}
                       placeholder="Your API token"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blockchain-primary focus:border-transparent"
@@ -182,13 +182,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </button>
                 </div>
                 
-                {settings.mcpServers.length === 0 ? (
+                {settings.mcp_servers.length === 0 ? (
                   <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg">
                     No MCP servers configured. Add one to enable tool integrations.
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {settings.mcpServers.map((server, index) => (
+                    {settings.mcp_servers.map((server, index) => (
                       <div key={index} className="bg-gray-50 rounded-lg p-4">
                         <div className="flex items-start gap-4">
                           <div className="flex-1 space-y-3">

@@ -26,12 +26,12 @@ export interface LLMProviderConfig {
   name: string;
   url: string;
   token: string;
-  modelName: string;
+  model_name: string;
 }
 
 export interface AppSettings {
-  mcpServers: MCPServerConfig[];
-  llmProvider: LLMProviderConfig;
+  mcp_servers: MCPServerConfig[];
+  llm_provider: LLMProviderConfig;
 }
 
 // API types
