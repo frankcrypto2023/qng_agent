@@ -59,6 +59,20 @@ class APIClient {
     }
   }
 
+  async updateSession(sessionId: string, updates: { title?: string }): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updates),
+    })
+    
+    if (!response.ok) {
+      throw new Error('Failed to update session')
+    }
+  }
+
   // Message streaming with Server-Sent Events
   async sendMessage(
     request: SendMessageRequest,

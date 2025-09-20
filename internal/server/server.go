@@ -83,6 +83,7 @@ func (s *Server) setupRoutes() {
 	api.POST("/sessions", s.handler.CreateSession)
 	api.GET("/sessions", s.handler.GetSessions)
 	api.GET("/sessions/:id", s.handler.GetSession)
+	api.PUT("/sessions/:id", s.handler.UpdateSession)
 	api.DELETE("/sessions/:id", s.handler.DeleteSession)
 	
 	// Chat streaming

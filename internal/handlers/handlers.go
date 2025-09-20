@@ -99,6 +99,29 @@ func (h *Handler) DeleteSession(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Session deleted"})
 }
 
+// UpdateSession updates a chat session
+func (h *Handler) UpdateSession(c *gin.Context) {
+	sessionID := c.Param("id")
+	
+	var req struct {
+		Title string `json:"title"`
+	}
+	
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	
+	// Update session title
+	err := h.sessionManager.UpdateSessionTitle(sessionID, req.Title)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update session"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Session updated"})
+}
+
 // StreamChat handles streaming chat responses
 func (h *Handler) StreamChat(c *gin.Context) {
 	var req types.SendMessageRequest

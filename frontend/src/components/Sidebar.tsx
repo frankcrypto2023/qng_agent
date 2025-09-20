@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MessageSquare, Plus, Settings, Trash2 } from 'lucide-react'
+import { MessageSquare, Plus, Settings, Trash2, Edit2, Check, X } from 'lucide-react'
 import { ChatSession } from '../types'
 import { apiClient } from '../api/client'
 import { formatTimestamp, cn } from '../utils'
@@ -24,6 +24,8 @@ export function Sidebar({
   onSessionsUpdate
 }: SidebarProps) {
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState<string>('')
 
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -40,6 +42,42 @@ export function Sidebar({
       console.error('Failed to delete session:', error)
     } finally {
       setDeletingSessionId(null)
+    }
+  }
+
+  const handleEditSession = (sessionId: string, currentTitle: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditingSessionId(sessionId)
+    setEditingTitle(currentTitle || 'New Conversation')
+  }
+
+  const handleSaveTitle = async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    
+    try {
+      await apiClient.updateSession(sessionId, { title: editingTitle.trim() })
+      onSessionsUpdate() // Refresh sessions to show updated title
+    } catch (error) {
+      console.error('Failed to update session title:', error)
+    } finally {
+      setEditingSessionId(null)
+      setEditingTitle('')
+    }
+  }
+
+  const handleCancelEdit = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditingSessionId(null)
+    setEditingTitle('')
+  }
+
+  const handleTitleKeyPress = (e: React.KeyboardEvent, sessionId: string) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleSaveTitle(sessionId, e as any)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      handleCancelEdit(e as any)
     }
   }
 
@@ -86,9 +124,43 @@ export function Sidebar({
               <div className="flex items-start gap-3">
                 <MessageSquare className="w-5 h-5 text-blockchain-primary mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-medium text-gray-900 truncate">
-                    {session.title || 'New Conversation'}
-                  </h3>
+                  {editingSessionId === session.id ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={editingTitle}
+                        onChange={(e) => setEditingTitle(e.target.value)}
+                        onKeyPress={(e) => handleTitleKeyPress(e, session.id)}
+                        className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:border-blockchain-primary"
+                        autoFocus
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <button
+                        onClick={(e) => handleSaveTitle(session.id, e)}
+                        className="p-1 hover:bg-green-100 rounded transition-colors"
+                      >
+                        <Check className="w-4 h-4 text-green-600" />
+                      </button>
+                      <button
+                        onClick={handleCancelEdit}
+                        className="p-1 hover:bg-gray-100 rounded transition-colors"
+                      >
+                        <X className="w-4 h-4 text-gray-600" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-medium text-gray-900 truncate flex-1">
+                        {session.title || 'New Conversation'}
+                      </h3>
+                      <button
+                        onClick={(e) => handleEditSession(session.id, session.title || 'New Conversation', e)}
+                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-100 rounded transition-all"
+                      >
+                        <Edit2 className="w-4 h-4 text-gray-600" />
+                      </button>
+                    </div>
+                  )}
                   <p className="text-sm text-gray-500 mt-1">
                     {formatTimestamp(new Date(session.updatedAt))}
                   </p>
