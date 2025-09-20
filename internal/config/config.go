@@ -15,12 +15,12 @@ type Config struct {
 
 // ServerConfig contains HTTP server configuration
 type ServerConfig struct {
-	Port            string `json:"port"`
-	Host            string `json:"host"`
-	AllowedOrigins  []string `json:"allowed_origins"`
-	ReadTimeout     int    `json:"read_timeout"`
-	WriteTimeout    int    `json:"write_timeout"`
-	MaxRequestSize  int64  `json:"max_request_size"`
+	Port           string   `json:"port"`
+	Host           string   `json:"host"`
+	AllowedOrigins []string `json:"allowed_origins"`
+	ReadTimeout    int      `json:"read_timeout"`
+	WriteTimeout   int      `json:"write_timeout"`
+	MaxRequestSize int64    `json:"max_request_size"`
 }
 
 // DatabaseConfig contains database configuration
@@ -31,9 +31,9 @@ type DatabaseConfig struct {
 
 // LLMConfig contains default LLM configuration
 type LLMConfig struct {
-	DefaultProvider string `json:"default_provider"`
-	DefaultModel    string `json:"default_model"`
-	MaxTokens       int    `json:"max_tokens"`
+	DefaultProvider string  `json:"default_provider"`
+	DefaultModel    string  `json:"default_model"`
+	MaxTokens       int     `json:"max_tokens"`
 	Temperature     float64 `json:"temperature"`
 }
 
@@ -53,7 +53,7 @@ type MCPServerConfig struct {
 func Load() (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{
-			Port:           getEnv("PORT", "8080"),
+			Port:           getEnv("PORT", "8081"),
 			Host:           getEnv("HOST", "0.0.0.0"),
 			AllowedOrigins: []string{"http://localhost:3000"},
 			ReadTimeout:    30,
@@ -74,7 +74,7 @@ func Load() (*Config, error) {
 			DefaultServers: []MCPServerConfig{
 				{
 					Name:    "QNG Tools",
-					URL:     "http://localhost:9000/mcp",
+					URL:     "http://localhost:8080/sse",
 					Enabled: true,
 				},
 			},

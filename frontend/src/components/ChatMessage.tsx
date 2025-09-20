@@ -41,6 +41,11 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
           <span className="text-sm text-gray-500">
             {formatTimestamp(message.timestamp)}
           </span>
+          {isStreaming && (
+            <span className="text-xs text-blue-500">
+              Streaming...
+            </span>
+          )}
         </div>
         
         <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-code:text-purple-600 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-gray-900 prose-pre:text-gray-100">
@@ -50,10 +55,17 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
               {message.content}
             </div>
           ) : (
-            // Assistant messages: markdown rendering
-            <div className={cn(
-              isStreaming && "after:content-['▊'] after:animate-pulse after:ml-1"
-            )}>
+            // Assistant messages: Markdown or streaming text
+            isStreaming ? (
+              // During streaming: show raw text with cursor animation
+              <div className={cn(
+                "whitespace-pre-wrap break-words text-gray-700 leading-relaxed",
+                "after:content-['▊'] after:animate-pulse after:ml-1"
+              )}>
+                {message.content}
+              </div>
+            ) : (
+              // Static message: render with Markdown
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight]}
@@ -84,7 +96,7 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
                   },
                   table: ({children}) => (
                     <div className="overflow-x-auto my-4">
-                      <table className="min-w-full border-collapse border border-gray-300">
+                      <table className="min-w-full border-collapse border border-gray-300 bg-white">
                         {children}
                       </table>
                     </div>
@@ -99,7 +111,7 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
               >
                 {message.content}
               </ReactMarkdown>
-            </div>
+            )
           )}
         </div>
       </div>

@@ -117,4 +117,48 @@ type IntentAnalysisResult struct {
 	Parameters   map[string]interface{} `json:"parameters,omitempty"`
 	WorkflowName string                 `json:"workflow_name,omitempty"`
 	RequiresAuth bool                   `json:"requires_auth"`
+	// New fields for sub-workflow support
+	SubWorkflow  *SubWorkflow           `json:"sub_workflow,omitempty"`
+	MultiTask    bool                   `json:"multi_task,omitempty"`
+}
+
+// SubWorkflow represents a dynamically generated sub-workflow
+type SubWorkflow struct {
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Tasks       []TaskExecution `json:"tasks"`
+	ExecutionMode string        `json:"execution_mode"` // "sequential" or "parallel"
+	AggregationStrategy string `json:"aggregation_strategy"` // "compare", "summarize", "merge"
+}
+
+// TaskExecution represents a single task to be executed
+type TaskExecution struct {
+	ID          string                 `json:"id"`
+	TaskType    string                 `json:"task_type"`    // "mcp_tool", "web3_workflow", etc.
+	ToolName    string                 `json:"tool_name,omitempty"`
+	Parameters  map[string]interface{} `json:"parameters"`
+	RPC         string                 `json:"rpc,omitempty"`
+	Order       int                    `json:"order,omitempty"`
+	Description string                 `json:"description"`
+	DependsOn   []string               `json:"depends_on,omitempty"` // Task IDs this task depends on
+}
+
+// TaskResult represents the result of a task execution
+type TaskResult struct {
+	TaskID      string                 `json:"task_id"`
+	Success     bool                   `json:"success"`
+	Result      map[string]interface{} `json:"result,omitempty"`
+	Error       string                 `json:"error,omitempty"`
+	ExecutionTime time.Duration        `json:"execution_time"`
+	RPC         string                 `json:"rpc,omitempty"`
+}
+
+// SubWorkflowResult represents the result of a sub-workflow execution
+type SubWorkflowResult struct {
+	WorkflowID   string       `json:"workflow_id"`
+	Success      bool         `json:"success"`
+	TaskResults  []TaskResult `json:"task_results"`
+	Summary      string       `json:"summary,omitempty"`
+	TotalTime    time.Duration `json:"total_time"`
 }

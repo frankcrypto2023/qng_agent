@@ -39,7 +39,7 @@ func New(cfg *config.Config) *Server {
 	}
 
 	// Initialize handlers
-	handler := handlers.NewHandler(sessionManager, llmManager, storage)
+	handler := handlers.NewHandler(sessionManager, llmManager, cfg, storage)
 
 	// Setup Gin
 	if cfg.Server.Host == "0.0.0.0" {

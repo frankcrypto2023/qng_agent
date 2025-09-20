@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"qng-agent/internal/config"
 	"qng-agent/internal/graph"
 	"qng-agent/internal/llm"
 	"qng-agent/internal/session"
@@ -20,17 +21,19 @@ type Handler struct {
 	sessionManager *session.Manager
 	llmManager     *llm.Manager
 	graphManager   *graph.LLMGraphManager
+	config         *config.Config
 	storage        storage.Storage
 }
 
 // NewHandler creates a new handler
-func NewHandler(sessionManager *session.Manager, llmManager *llm.Manager, storage storage.Storage) *Handler {
-	graphManager := graph.NewLLMGraphManager(llmManager.GetClient())
+func NewHandler(sessionManager *session.Manager, llmManager *llm.Manager, cfg *config.Config, storage storage.Storage) *Handler {
+	graphManager := graph.NewLLMGraphManager(llmManager.GetClient(), cfg, storage)
 	
 	return &Handler{
 		sessionManager: sessionManager,
 		llmManager:     llmManager,
 		graphManager:   graphManager,
+		config:         cfg,
 		storage:        storage,
 	}
 }
@@ -131,14 +134,14 @@ func (h *Handler) StreamChat(c *gin.Context) {
 		return
 	}
 
-	// Get session history for context (not used in simplified mode)
-	_, err = h.sessionManager.GetSessionHistory(req.SessionID)
+	// Get session history for context
+	history, err := h.sessionManager.GetSessionHistory(req.SessionID)
 	if err != nil {
 		c.SSEvent("error", gin.H{"error": "Failed to get session history"})
 		return
 	}
 
-	// Process through LLM graph
+	// Process through QNG Graph workflow
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
 
@@ -149,25 +152,13 @@ func (h *Handler) StreamChat(c *gin.Context) {
 	fmt.Fprintf(c.Writer, "data: %s\n\n", `{"message_id":"`+assistantMessageID+`"}`)
 	c.Writer.Flush()
 
-	// Process message through graph and stream response
-	// For testing, let's try direct LLM call first
-	chatMessages := []types.ChatMessage{
-		{Role: "user", Content: req.Message},
-	}
-	
-	response, err := h.llmManager.GetClient().GetCompletion(ctx, chatMessages)
+	// Process message through QNG Graph workflow
+	response, needsAuth, err := h.graphManager.ProcessUserMessage(ctx, req.Message, history[:len(history)-1])
 	if err != nil {
-		c.SSEvent("error", gin.H{"error": "Failed to process message: " + err.Error()})
+		fmt.Fprintf(c.Writer, "data: %s\n\n", `{"error":"Failed to process message: `+err.Error()+`"}`)
+		c.Writer.Flush()
 		return
 	}
-	
-	// Alternative: Use graph workflow (commented out for testing)
-	// response, needsAuth, err := h.graphManager.ProcessUserMessage(ctx, req.Message, history[:len(history)-1])
-	// if err != nil {
-	//     c.SSEvent("error", gin.H{"error": "Failed to process message"})
-	//     return
-	// }
-	needsAuth := false
 
 	// Stream the response character by character
 	for i, char := range response {
@@ -227,7 +218,7 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 	// Update LLM client if configuration changed
 	if settings.LLMProvider.URL != "" && settings.LLMProvider.Token != "" {
 		h.llmManager.UpdateClientFromConfig(settings.LLMProvider)
-		h.graphManager = graph.NewLLMGraphManager(h.llmManager.GetClient())
+		h.graphManager = graph.NewLLMGraphManager(h.llmManager.GetClient(), h.config, h.storage)
 	}
 
 	// Save settings

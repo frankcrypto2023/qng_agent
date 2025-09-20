@@ -151,6 +151,13 @@ function App() {
         setIsStreaming(false)
         setStreamingMessage('')
         setIsLoading(false)
+        
+        // Simulate clicking current session to refresh the message display and ensure proper Markdown rendering
+        setTimeout(() => {
+          if (currentSession?.id) {
+            handleSessionSelect(currentSession.id)
+          }
+        }, 500) // 500ms delay to ensure state updates are complete
       },
       // onError: Handle errors
       (error: Error) => {
@@ -207,7 +214,11 @@ function App() {
                 // Messages list
                 <div className="space-y-0">
                   {currentSession.messages.map((message) => (
-                    <ChatMessage key={message.id} message={message} />
+                    <ChatMessage 
+                      key={message.id} 
+                      message={message} 
+                      isStreaming={false}
+                    />
                   ))}
                   
                   {/* Streaming message */}

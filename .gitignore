@@ -5,3 +5,5 @@ qng-agent
 qng-agent-test
 main
 data
+server.log
+test_files
