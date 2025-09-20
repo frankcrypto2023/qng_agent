@@ -1266,6 +1266,15 @@ Please provide a clear, natural language response to the user. Guidelines:
 - If multiple RPC endpoints were queried, compare and explain the differences or similarities
 - For sub-workflow results, summarize the findings from multiple tasks clearly
 
+LANGUAGE CONSISTENCY REQUIREMENT:
+- CRITICAL: Analyze the user's question language (Chinese, English, etc.)
+- Respond in the SAME language that the user used in their question
+- If user asked in Chinese (中文), respond entirely in Chinese
+- If user asked in English, respond entirely in English
+- If user mixed languages, prioritize the primary language used
+- Keep technical terms consistent with the user's language preference
+- This language consistency rule overrides all other formatting preferences
+
 FORMATTING AND PRESENTATION GUIDELINES:
 - Use proper Markdown formatting for better readability
 - Create tables using Markdown syntax when comparing multiple data points

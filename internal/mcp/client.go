@@ -23,7 +23,7 @@ type Client struct {
 	httpClient    *http.Client
 	servers       map[string]string // serverName -> URL mapping
 	sessions      map[string]string // serverURL -> sessionID mapping for reuse
-	sseConnections map[string]*http.Response // serverURL -> active SSE connection
+	sseConnections map[string]*http.Response // sessionID -> active SSE connection (changed from serverURL)
 	mutex         sync.RWMutex // Protect concurrent access to sessions and connections
 	requestCounter int64        // Counter for unique request IDs
 }
@@ -89,7 +89,7 @@ func (c *Client) callSSETool(ctx context.Context, serverURL string, toolName str
 	// Try up to 2 times: first with cached session, then with fresh session
 	for attempt := 0; attempt < 2; attempt++ {
 		// For MCP SSE protocol, we need to get session and use message endpoint
-		_, messageEndpoint, err := c.initMCPSessionSafe(ctx, serverURL)
+		sessionID, messageEndpoint, err := c.initMCPSessionSafe(ctx, serverURL)
 		if err != nil {
 			log.Printf("Failed to initialize MCP session for tool call (attempt %d): %v", attempt+1, err)
 			if attempt == 0 {
@@ -159,25 +159,21 @@ func (c *Client) callSSETool(ctx context.Context, serverURL string, toolName str
 		}
 
 		// Read response from the original SSE connection instead of the response body
-		return c.readSSEToolCallResponse(requestID)
+		return c.readSSEToolCallResponse(sessionID, requestID)
 	}
 
 	return nil, fmt.Errorf("failed to call tool after 2 attempts")
 }
 
-// readSSEToolCallResponse reads tool call response from the active SSE connection
-func (c *Client) readSSEToolCallResponse(expectedID string) (map[string]interface{}, error) {
-	// Find the active SSE connection for this session
-	var sseConn *http.Response
-	for _, conn := range c.sseConnections {
-		if conn != nil {
-			sseConn = conn
-			break
-		}
-	}
-
-	if sseConn == nil {
-		return nil, fmt.Errorf("no active SSE connection found")
+// readSSEToolCallResponse reads tool call response from the correct SSE connection by sessionID
+func (c *Client) readSSEToolCallResponse(sessionID, expectedID string) (map[string]interface{}, error) {
+	// Find the active SSE connection for this specific session ID
+	c.mutex.RLock()
+	sseConn, exists := c.sseConnections[sessionID]
+	c.mutex.RUnlock()
+	
+	if !exists || sseConn == nil {
+		return nil, fmt.Errorf("no active SSE connection found for session: %s", sessionID)
 	}
 
 	scanner := bufio.NewScanner(sseConn.Body)
@@ -310,7 +306,7 @@ func (c *Client) initMCPSessionSafe(ctx context.Context, sseURL string) (string,
 	// Check existing session with read lock
 	c.mutex.RLock()
 	if existingSessionID, exists := c.sessions[sseURL]; exists {
-		if sseConn, connExists := c.sseConnections[sseURL]; connExists && sseConn != nil {
+		if sseConn, connExists := c.sseConnections[existingSessionID]; connExists && sseConn != nil {
 			messageEndpoint := strings.Replace(sseURL, "/sse", "/message", 1) + "?sessionId=" + existingSessionID
 			c.mutex.RUnlock()
 			return existingSessionID, messageEndpoint, nil
@@ -324,16 +320,18 @@ func (c *Client) initMCPSessionSafe(ctx context.Context, sseURL string) (string,
 
 	// Double-check pattern - another goroutine might have created the session
 	if existingSessionID, exists := c.sessions[sseURL]; exists {
-		if sseConn, connExists := c.sseConnections[sseURL]; connExists && sseConn != nil {
+		if sseConn, connExists := c.sseConnections[existingSessionID]; connExists && sseConn != nil {
 			messageEndpoint := strings.Replace(sseURL, "/sse", "/message", 1) + "?sessionId=" + existingSessionID
 			return existingSessionID, messageEndpoint, nil
 		}
 	}
 
-	// Clean up any stale connections
-	if oldConn, exists := c.sseConnections[sseURL]; exists && oldConn != nil {
-		oldConn.Body.Close()
-		delete(c.sseConnections, sseURL)
+	// Clean up any stale connections and sessions
+	if existingSessionID, exists := c.sessions[sseURL]; exists {
+		if oldConn, connExists := c.sseConnections[existingSessionID]; connExists && oldConn != nil {
+			oldConn.Body.Close()
+			delete(c.sseConnections, existingSessionID)
+		}
 		delete(c.sessions, sseURL)
 	}
 
@@ -349,17 +347,19 @@ func (c *Client) initMCPSessionSafe(ctx context.Context, sseURL string) (string,
 func (c *Client) initMCPSession(ctx context.Context, sseURL string) (string, string, error) {
 	// Check if we have an active SSE connection and session for this URL
 	if existingSessionID, exists := c.sessions[sseURL]; exists {
-		if sseConn, connExists := c.sseConnections[sseURL]; connExists && sseConn != nil {
+		if sseConn, connExists := c.sseConnections[existingSessionID]; connExists && sseConn != nil {
 			// Test if SSE connection is still alive by checking if we can read from it
 			messageEndpoint := strings.Replace(sseURL, "/sse", "/message", 1) + "?sessionId=" + existingSessionID
 			return existingSessionID, messageEndpoint, nil
 		}
 	}
 
-	// Clean up any stale connections
-	if oldConn, exists := c.sseConnections[sseURL]; exists && oldConn != nil {
-		oldConn.Body.Close()
-		delete(c.sseConnections, sseURL)
+	// Clean up any stale connections and sessions
+	if existingSessionID, exists := c.sessions[sseURL]; exists {
+		if oldConn, connExists := c.sseConnections[existingSessionID]; connExists && oldConn != nil {
+			oldConn.Body.Close()
+			delete(c.sseConnections, existingSessionID)
+		}
 		delete(c.sessions, sseURL)
 	}
 
@@ -419,9 +419,9 @@ func (c *Client) initMCPSession(ctx context.Context, sseURL string) (string, str
 	select {
 	case <-done:
 		if sessionID != "" && messageEndpoint != "" {
-			// Cache the session and KEEP the SSE connection alive
+			// Cache the session and KEEP the SSE connection alive under sessionID
 			c.sessions[sseURL] = sessionID
-			c.sseConnections[sseURL] = resp
+			c.sseConnections[sessionID] = resp  // Store by sessionID instead of sseURL
 			log.Printf("Established active SSE connection for session: %s", sessionID)
 			return sessionID, messageEndpoint, nil
 		}
