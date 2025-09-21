@@ -149,7 +149,10 @@ func (c *Client) callSSETool(ctx context.Context, serverURL string, toolName str
 				if idx := strings.Index(sseURL, "?"); idx != -1 {
 					sseURL = sseURL[:idx]
 				}
+				c.mutex.Lock()
 				delete(c.sessions, sseURL)
+				delete(c.sseConnections, sessionID) // Use sessionID as key
+				c.mutex.Unlock()
 				log.Printf("Session expired for tool call, cleared from cache")
 				if attempt == 0 {
 					continue
@@ -481,16 +484,13 @@ func (c *Client) getSSEServerTools(ctx context.Context, serverURL string) ([]map
 
 // callMCPToolsList calls the MCP tools/list method and reads response from original SSE connection
 func (c *Client) callMCPToolsList(ctx context.Context, messageEndpoint, sessionID string) ([]map[string]interface{}, error) {
-	// Extract server URL to get the SSE connection
-	sseURL := strings.Replace(messageEndpoint, "/message", "/sse", 1)
-	if idx := strings.Index(sseURL, "?"); idx != -1 {
-		sseURL = sseURL[:idx]
-	}
+	// Get the active SSE connection by sessionID (not sseURL)
+	c.mutex.RLock()
+	sseConn, exists := c.sseConnections[sessionID]
+	c.mutex.RUnlock()
 
-	// Get the active SSE connection
-	sseConn, exists := c.sseConnections[sseURL]
 	if !exists || sseConn == nil {
-		return nil, fmt.Errorf("no active SSE connection for %s", sseURL)
+		return nil, fmt.Errorf("no active SSE connection for session: %s", sessionID)
 	}
 
 	// Prepare MCP JSON-RPC request
@@ -527,12 +527,20 @@ func (c *Client) callMCPToolsList(ctx context.Context, messageEndpoint, sessionI
 		body, _ := io.ReadAll(resp.Body)
 		// If session is invalid, clear cache and return error for retry with new session
 		if strings.Contains(string(body), "Invalid session ID") {
+			// Extract sseURL from messageEndpoint to clear sessions mapping
+			sseURL := strings.Replace(messageEndpoint, "/message", "/sse", 1)
+			if idx := strings.Index(sseURL, "?"); idx != -1 {
+				sseURL = sseURL[:idx]
+			}
+
+			c.mutex.Lock()
 			delete(c.sessions, sseURL)
 			if sseConn != nil {
 				sseConn.Body.Close()
 			}
-			delete(c.sseConnections, sseURL)
-			log.Printf("Session expired for %s, cleared from cache", sseURL)
+			delete(c.sseConnections, sessionID) // Use sessionID as key
+			c.mutex.Unlock()
+			log.Printf("Session expired for %s, cleared from cache", sessionID)
 		}
 		return nil, fmt.Errorf("message endpoint returned status %d: %s", resp.StatusCode, string(body))
 	}

@@ -5,6 +5,7 @@ import (
 	"qng-agent/internal/config"
 	"qng-agent/internal/handlers"
 	"qng-agent/internal/llm"
+	"qng-agent/internal/middleware"
 	"qng-agent/internal/session"
 	"qng-agent/internal/storage"
 
@@ -32,8 +33,8 @@ func New(cfg *config.Config) *Server {
 	// Initialize LLM manager
 	llmManager := llm.NewManager()
 	
-	// Load settings and configure LLM client
-	settings, err := storage.LoadSettings()
+	// Load settings and configure LLM client (use default user for initial settings)
+	settings, err := storage.LoadSettings("default")
 	if err == nil && settings.LLMProvider.URL != "" && settings.LLMProvider.Token != "" {
 		llmManager.UpdateClientFromConfig(settings.LLMProvider)
 	}
@@ -61,6 +62,9 @@ func New(cfg *config.Config) *Server {
 		
 		c.Next()
 	})
+
+	// Add user identification middleware
+	engine.Use(middleware.UserMiddleware())
 
 	server := &Server{
 		config:  cfg,

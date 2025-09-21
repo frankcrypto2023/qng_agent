@@ -7,3 +7,5 @@ main
 data
 server.log
 test_files
+*.log
+*.txt

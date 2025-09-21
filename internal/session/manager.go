@@ -10,10 +10,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// Manager handles chat session management
+// Manager handles chat session management with user isolation
 type Manager struct {
 	storage  storage.Storage
-	sessions map[string]*SessionContext
+	// sessions map[userID][sessionID]*SessionContext for user isolation
+	sessions map[string]map[string]*SessionContext
 	mutex    sync.RWMutex
 }
 
@@ -28,12 +29,12 @@ type SessionContext struct {
 func NewManager(storage storage.Storage) *Manager {
 	return &Manager{
 		storage:  storage,
-		sessions: make(map[string]*SessionContext),
+		sessions: make(map[string]map[string]*SessionContext),
 	}
 }
 
-// CreateSession creates a new chat session
-func (m *Manager) CreateSession(title string) (*types.ChatSession, error) {
+// CreateSession creates a new chat session for a user
+func (m *Manager) CreateSession(userID, title string) (*types.ChatSession, error) {
 	if title == "" {
 		title = "New Conversation"
 	}
@@ -46,13 +47,16 @@ func (m *Manager) CreateSession(title string) (*types.ChatSession, error) {
 		UpdatedAt: time.Now(),
 	}
 
-	if err := m.storage.CreateSession(session); err != nil {
+	if err := m.storage.CreateSession(userID, session); err != nil {
 		return nil, fmt.Errorf("failed to create session in storage: %w", err)
 	}
 
 	// Add to active sessions
 	m.mutex.Lock()
-	m.sessions[session.ID] = &SessionContext{
+	if m.sessions[userID] == nil {
+		m.sessions[userID] = make(map[string]*SessionContext)
+	}
+	m.sessions[userID][session.ID] = &SessionContext{
 		Session:  session,
 		LastUsed: time.Now(),
 	}
@@ -61,29 +65,34 @@ func (m *Manager) CreateSession(title string) (*types.ChatSession, error) {
 	return session, nil
 }
 
-// GetSession retrieves a session by ID
-func (m *Manager) GetSession(sessionID string) (*types.ChatSession, error) {
+// GetSession retrieves a session by userID and sessionID
+func (m *Manager) GetSession(userID, sessionID string) (*types.ChatSession, error) {
 	// Check active sessions first
 	m.mutex.RLock()
-	if ctx, exists := m.sessions[sessionID]; exists {
-		ctx.mutex.RLock()
-		session := ctx.Session
-		ctx.mutex.RUnlock()
-		ctx.LastUsed = time.Now()
-		m.mutex.RUnlock()
-		return session, nil
+	if userSessions, exists := m.sessions[userID]; exists {
+		if ctx, exists := userSessions[sessionID]; exists {
+			ctx.mutex.RLock()
+			session := ctx.Session
+			ctx.mutex.RUnlock()
+			ctx.LastUsed = time.Now()
+			m.mutex.RUnlock()
+			return session, nil
+		}
 	}
 	m.mutex.RUnlock()
 
 	// Load from storage
-	session, err := m.storage.GetSession(sessionID)
+	session, err := m.storage.GetSession(userID, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session from storage: %w", err)
 	}
 
 	// Add to active sessions
 	m.mutex.Lock()
-	m.sessions[sessionID] = &SessionContext{
+	if m.sessions[userID] == nil {
+		m.sessions[userID] = make(map[string]*SessionContext)
+	}
+	m.sessions[userID][sessionID] = &SessionContext{
 		Session:  session,
 		LastUsed: time.Now(),
 	}
@@ -92,9 +101,9 @@ func (m *Manager) GetSession(sessionID string) (*types.ChatSession, error) {
 	return session, nil
 }
 
-// GetSessions retrieves all sessions
-func (m *Manager) GetSessions() ([]types.ChatSession, error) {
-	sessions, err := m.storage.GetSessions()
+// GetSessions retrieves all sessions for a user
+func (m *Manager) GetSessions(userID string) ([]types.ChatSession, error) {
+	sessions, err := m.storage.GetSessions(userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sessions from storage: %w", err)
 	}
@@ -102,39 +111,48 @@ func (m *Manager) GetSessions() ([]types.ChatSession, error) {
 	return sessions, nil
 }
 
-// DeleteSession deletes a session
-func (m *Manager) DeleteSession(sessionID string) error {
+// DeleteSession deletes a session for a user
+func (m *Manager) DeleteSession(userID, sessionID string) error {
 	// Remove from active sessions
 	m.mutex.Lock()
-	delete(m.sessions, sessionID)
+	if userSessions, exists := m.sessions[userID]; exists {
+		delete(userSessions, sessionID)
+		if len(userSessions) == 0 {
+			delete(m.sessions, userID)
+		}
+	}
 	m.mutex.Unlock()
 
 	// Delete from storage
-	if err := m.storage.DeleteSession(sessionID); err != nil {
+	if err := m.storage.DeleteSession(userID, sessionID); err != nil {
 		return fmt.Errorf("failed to delete session from storage: %w", err)
 	}
 
 	return nil
 }
 
-// AddMessage adds a message to a session
-func (m *Manager) AddMessage(sessionID string, message *types.ChatMessage) error {
+// AddMessage adds a message to a user's session
+func (m *Manager) AddMessage(userID, sessionID string, message *types.ChatMessage) error {
 	// Get session context
 	m.mutex.RLock()
-	ctx, exists := m.sessions[sessionID]
+	var ctx *SessionContext
+	if userSessions, exists := m.sessions[userID]; exists {
+		ctx = userSessions[sessionID]
+	}
 	m.mutex.RUnlock()
-
-	if !exists {
+	if ctx == nil {
 		// Load session if not in memory
-		_, err := m.GetSession(sessionID)
+		_, err := m.GetSession(userID, sessionID)
 		if err != nil {
 			return fmt.Errorf("session not found: %w", err)
 		}
-		
+
 		m.mutex.RLock()
-		ctx = m.sessions[sessionID]
+		if userSessions, exists := m.sessions[userID]; exists {
+			ctx = userSessions[sessionID]
+		}
 		m.mutex.RUnlock()
-		
+
 		if ctx == nil {
 			return fmt.Errorf("failed to load session context")
 		}
@@ -147,7 +165,7 @@ func (m *Manager) AddMessage(sessionID string, message *types.ChatMessage) error
 	}
 
 	// Save to storage
-	if err := m.storage.CreateMessage(message); err != nil {
+	if err := m.storage.CreateMessage(userID, message); err != nil {
 		return fmt.Errorf("failed to save message to storage: %w", err)
 	}
 
@@ -162,20 +180,24 @@ func (m *Manager) AddMessage(sessionID string, message *types.ChatMessage) error
 }
 
 // GetSessionContext retrieves the session context for workflow execution
-func (m *Manager) GetSessionContext(sessionID string) (*SessionContext, error) {
+func (m *Manager) GetSessionContext(userID, sessionID string) (*SessionContext, error) {
 	m.mutex.RLock()
-	ctx, exists := m.sessions[sessionID]
+	var ctx *SessionContext
+	if userSessions, exists := m.sessions[userID]; exists {
+		ctx = userSessions[sessionID]
+	}
 	m.mutex.RUnlock()
-
-	if !exists {
+	if ctx == nil {
 		// Load session if not in memory
-		_, err := m.GetSession(sessionID)
+		_, err := m.GetSession(userID, sessionID)
 		if err != nil {
 			return nil, fmt.Errorf("session not found: %w", err)
 		}
-		
+
 		m.mutex.RLock()
-		ctx = m.sessions[sessionID]
+		if userSessions, exists := m.sessions[userID]; exists {
+			ctx = userSessions[sessionID]
+		}
 		m.mutex.RUnlock()
 	}
 
@@ -187,9 +209,9 @@ func (m *Manager) GetSessionContext(sessionID string) (*SessionContext, error) {
 	return ctx, nil
 }
 
-// GetSessionHistory returns the message history for a session
-func (m *Manager) GetSessionHistory(sessionID string) ([]types.ChatMessage, error) {
-	session, err := m.GetSession(sessionID)
+// GetSessionHistory returns the message history for a user's session
+func (m *Manager) GetSessionHistory(userID, sessionID string) ([]types.ChatMessage, error) {
+	session, err := m.GetSession(userID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -197,14 +219,16 @@ func (m *Manager) GetSessionHistory(sessionID string) ([]types.ChatMessage, erro
 	return session.Messages, nil
 }
 
-// UpdateSessionTitle updates the title of a session
-func (m *Manager) UpdateSessionTitle(sessionID, title string) error {
+// UpdateSessionTitle updates the title of a user's session
+func (m *Manager) UpdateSessionTitle(userID, sessionID, title string) error {
 	// Get session context
 	m.mutex.RLock()
-	ctx, exists := m.sessions[sessionID]
+	var ctx *SessionContext
+	if userSessions, exists := m.sessions[userID]; exists {
+		ctx = userSessions[sessionID]
+	}
 	m.mutex.RUnlock()
-
-	if !exists {
+	if ctx == nil {
 		return fmt.Errorf("session not found")
 	}
 
@@ -215,7 +239,7 @@ func (m *Manager) UpdateSessionTitle(sessionID, title string) error {
 	ctx.mutex.Unlock()
 
 	// Update in storage
-	if err := m.storage.UpdateSession(ctx.Session); err != nil {
+	if err := m.storage.UpdateSession(userID, ctx.Session); err != nil {
 		return fmt.Errorf("failed to update session in storage: %w", err)
 	}
 
@@ -228,9 +252,15 @@ func (m *Manager) CleanupInactiveSessions(maxAge time.Duration) {
 	defer m.mutex.Unlock()
 
 	cutoff := time.Now().Add(-maxAge)
-	for sessionID, ctx := range m.sessions {
-		if ctx.LastUsed.Before(cutoff) {
-			delete(m.sessions, sessionID)
+	for userID, userSessions := range m.sessions {
+		for sessionID, ctx := range userSessions {
+			if ctx.LastUsed.Before(cutoff) {
+				delete(userSessions, sessionID)
+			}
+		}
+		// Remove empty user sessions map
+		if len(userSessions) == 0 {
+			delete(m.sessions, userID)
 		}
 	}
 }

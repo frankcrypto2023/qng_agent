@@ -7,6 +7,7 @@ import (
 	"qng-agent/internal/config"
 	"qng-agent/internal/graph"
 	"qng-agent/internal/llm"
+	"qng-agent/internal/middleware"
 	"qng-agent/internal/session"
 	"qng-agent/internal/storage"
 	"qng-agent/internal/types"
@@ -27,7 +28,7 @@ type Handler struct {
 
 // NewHandler creates a new handler
 func NewHandler(sessionManager *session.Manager, llmManager *llm.Manager, cfg *config.Config, storage storage.Storage) *Handler {
-	graphManager := graph.NewLLMGraphManager(llmManager.GetClient(), cfg, storage)
+	graphManager := graph.NewLLMGraphManager(llmManager.GetClient(), llmManager, cfg, storage)
 	
 	return &Handler{
 		sessionManager: sessionManager,
@@ -40,13 +41,19 @@ func NewHandler(sessionManager *session.Manager, llmManager *llm.Manager, cfg *c
 
 // CreateSession creates a new chat session
 func (h *Handler) CreateSession(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+		return
+	}
+
 	var req types.CreateSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	session, err := h.sessionManager.CreateSession(req.Title)
+	session, err := h.sessionManager.CreateSession(userID, req.Title)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
 		return
@@ -57,9 +64,15 @@ func (h *Handler) CreateSession(c *gin.Context) {
 	})
 }
 
-// GetSessions retrieves all chat sessions
+// GetSessions retrieves all chat sessions for the user
 func (h *Handler) GetSessions(c *gin.Context) {
-	sessions, err := h.sessionManager.GetSessions()
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+		return
+	}
+
+	sessions, err := h.sessionManager.GetSessions(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get sessions"})
 		return
@@ -75,9 +88,15 @@ func (h *Handler) GetSessions(c *gin.Context) {
 
 // GetSession retrieves a specific chat session
 func (h *Handler) GetSession(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+		return
+	}
+
 	sessionID := c.Param("id")
-	
-	session, err := h.sessionManager.GetSession(sessionID)
+
+	session, err := h.sessionManager.GetSession(userID, sessionID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Session not found"})
 		return
@@ -88,9 +107,15 @@ func (h *Handler) GetSession(c *gin.Context) {
 
 // DeleteSession deletes a chat session
 func (h *Handler) DeleteSession(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+		return
+	}
+
 	sessionID := c.Param("id")
-	
-	err := h.sessionManager.DeleteSession(sessionID)
+
+	err := h.sessionManager.DeleteSession(userID, sessionID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete session"})
 		return
@@ -101,6 +126,12 @@ func (h *Handler) DeleteSession(c *gin.Context) {
 
 // UpdateSession updates a chat session
 func (h *Handler) UpdateSession(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+		return
+	}
+
 	sessionID := c.Param("id")
 	
 	var req struct {
@@ -113,7 +144,7 @@ func (h *Handler) UpdateSession(c *gin.Context) {
 	}
 	
 	// Update session title
-	err := h.sessionManager.UpdateSessionTitle(sessionID, req.Title)
+	err := h.sessionManager.UpdateSessionTitle(userID, sessionID, req.Title)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update session"})
 		return
@@ -124,6 +155,12 @@ func (h *Handler) UpdateSession(c *gin.Context) {
 
 // StreamChat handles streaming chat responses
 func (h *Handler) StreamChat(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+		return
+	}
+
 	var req types.SendMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -131,7 +168,7 @@ func (h *Handler) StreamChat(c *gin.Context) {
 	}
 
 	// Validate session exists
-	_, err := h.sessionManager.GetSession(req.SessionID)
+	_, err := h.sessionManager.GetSession(userID, req.SessionID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Session not found"})
 		return
@@ -152,13 +189,13 @@ func (h *Handler) StreamChat(c *gin.Context) {
 	}
 
 	// Save user message
-	if err := h.sessionManager.AddMessage(req.SessionID, userMessage); err != nil {
+	if err := h.sessionManager.AddMessage(userID, req.SessionID, userMessage); err != nil {
 		c.SSEvent("error", gin.H{"error": "Failed to save user message"})
 		return
 	}
 
 	// Get session history for context
-	history, err := h.sessionManager.GetSessionHistory(req.SessionID)
+	history, err := h.sessionManager.GetSessionHistory(userID, req.SessionID)
 	if err != nil {
 		c.SSEvent("error", gin.H{"error": "Failed to get session history"})
 		return
@@ -176,7 +213,7 @@ func (h *Handler) StreamChat(c *gin.Context) {
 	c.Writer.Flush()
 
 	// Process message through QNG Graph workflow
-	response, needsAuth, err := h.graphManager.ProcessUserMessage(ctx, req.Message, history[:len(history)-1])
+	response, needsAuth, err := h.graphManager.ProcessUserMessage(ctx, userID, req.Message, history[:len(history)-1])
 	if err != nil {
 		fmt.Fprintf(c.Writer, "data: %s\n\n", `{"error":"Failed to process message: `+err.Error()+`"}`)
 		c.Writer.Flush()
@@ -213,15 +250,21 @@ func (h *Handler) StreamChat(c *gin.Context) {
 		Timestamp: time.Now(),
 	}
 
-	if err := h.sessionManager.AddMessage(req.SessionID, assistantMessage); err != nil {
+	if err := h.sessionManager.AddMessage(userID, req.SessionID, assistantMessage); err != nil {
 		// Log error but don't fail the request
 		fmt.Printf("Failed to save assistant message: %v\n", err)
 	}
 }
 
-// GetSettings retrieves application settings
+// GetSettings retrieves application settings for the user
 func (h *Handler) GetSettings(c *gin.Context) {
-	settings, err := h.storage.LoadSettings()
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+		return
+	}
+
+	settings, err := h.storage.LoadSettings(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load settings"})
 		return
@@ -230,8 +273,14 @@ func (h *Handler) GetSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, settings)
 }
 
-// UpdateSettings updates application settings
+// UpdateSettings updates application settings for the user
 func (h *Handler) UpdateSettings(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+		return
+	}
+
 	var settings types.AppSettings
 	if err := c.ShouldBindJSON(&settings); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -241,11 +290,11 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 	// Update LLM client if configuration changed
 	if settings.LLMProvider.URL != "" && settings.LLMProvider.Token != "" {
 		h.llmManager.UpdateClientFromConfig(settings.LLMProvider)
-		h.graphManager = graph.NewLLMGraphManager(h.llmManager.GetClient(), h.config, h.storage)
+		h.graphManager = graph.NewLLMGraphManager(h.llmManager.GetClient(), h.llmManager, h.config, h.storage)
 	}
 
 	// Save settings
-	if err := h.storage.SaveSettings(&settings); err != nil {
+	if err := h.storage.SaveSettings(userID, &settings); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
 		return
 	}

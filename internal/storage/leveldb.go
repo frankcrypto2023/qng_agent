@@ -18,13 +18,39 @@ type LevelDBStorage struct {
 	db *leveldb.DB
 }
 
-// Key prefixes for different data types
+// Key prefixes for different data types with user isolation
 const (
+	UserPrefix     = "user:"
 	SessionPrefix  = "session:"
 	MessagePrefix  = "message:"
 	SettingsPrefix = "settings:"
 	IndexPrefix    = "index:"
 )
+
+// Helper functions for generating user-scoped keys
+func userSessionKey(userID, sessionID string) string {
+	return UserPrefix + userID + ":" + SessionPrefix + sessionID
+}
+
+func userMessageKey(userID, sessionID, timestamp, messageID string) string {
+	return UserPrefix + userID + ":" + MessagePrefix + sessionID + ":" + timestamp + ":" + messageID
+}
+
+func userSettingsKey(userID string) string {
+	return UserPrefix + userID + ":" + SettingsPrefix + "app_settings"
+}
+
+func userSessionIndexKey(userID, timestamp, sessionID string) string {
+	return UserPrefix + userID + ":" + IndexPrefix + "sessions:" + timestamp + ":" + sessionID
+}
+
+func userSessionIndexPrefix(userID string) string {
+	return UserPrefix + userID + ":" + IndexPrefix + "sessions:"
+}
+
+func userMessagePrefix(userID, sessionID string) string {
+	return UserPrefix + userID + ":" + MessagePrefix + sessionID + ":"
+}
 
 // NewLevelDBStorage creates a new LevelDB storage instance
 func NewLevelDBStorage(dbPath string) (*LevelDBStorage, error) {
@@ -43,8 +69,8 @@ func NewLevelDBStorage(dbPath string) (*LevelDBStorage, error) {
 }
 
 // CreateSession creates a new chat session
-func (s *LevelDBStorage) CreateSession(session *types.ChatSession) error {
-	sessionKey := SessionPrefix + session.ID
+func (s *LevelDBStorage) CreateSession(userID string, session *types.ChatSession) error {
+	sessionKey := userSessionKey(userID, session.ID)
 	
 	data, err := json.Marshal(session)
 	if err != nil {
@@ -57,7 +83,7 @@ func (s *LevelDBStorage) CreateSession(session *types.ChatSession) error {
 	}
 
 	// Update session index for quick listing
-	indexKey := IndexPrefix + "sessions:" + session.UpdatedAt.Format(time.RFC3339) + ":" + session.ID
+	indexKey := userSessionIndexKey(userID, session.UpdatedAt.Format(time.RFC3339), session.ID)
 	if err := s.db.Put([]byte(indexKey), []byte(session.ID), nil); err != nil {
 		return fmt.Errorf("failed to update session index: %w", err)
 	}
@@ -66,8 +92,8 @@ func (s *LevelDBStorage) CreateSession(session *types.ChatSession) error {
 }
 
 // GetSession retrieves a chat session with its messages
-func (s *LevelDBStorage) GetSession(sessionID string) (*types.ChatSession, error) {
-	sessionKey := SessionPrefix + sessionID
+func (s *LevelDBStorage) GetSession(userID, sessionID string) (*types.ChatSession, error) {
+	sessionKey := userSessionKey(userID, sessionID)
 	
 	data, err := s.db.Get([]byte(sessionKey), nil)
 	if err != nil {
@@ -83,7 +109,7 @@ func (s *LevelDBStorage) GetSession(sessionID string) (*types.ChatSession, error
 	}
 
 	// Get messages for this session
-	messages, err := s.GetMessages(sessionID)
+	messages, err := s.GetMessages(userID, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get messages: %w", err)
 	}
@@ -92,12 +118,12 @@ func (s *LevelDBStorage) GetSession(sessionID string) (*types.ChatSession, error
 	return &session, nil
 }
 
-// GetSessions retrieves all chat sessions
-func (s *LevelDBStorage) GetSessions() ([]types.ChatSession, error) {
+// GetSessions retrieves all chat sessions for a user
+func (s *LevelDBStorage) GetSessions(userID string) ([]types.ChatSession, error) {
 	var sessions []types.ChatSession
 	
 	// Use index to get sessions ordered by update time (newest first)
-	iter := s.db.NewIterator(util.BytesPrefix([]byte(IndexPrefix+"sessions:")), nil)
+	iter := s.db.NewIterator(util.BytesPrefix([]byte(userSessionIndexPrefix(userID))), nil)
 	defer iter.Release()
 
 	// Collect session IDs in reverse order (newest first)
@@ -115,7 +141,7 @@ func (s *LevelDBStorage) GetSessions() ([]types.ChatSession, error) {
 	for i := len(sessionIDs) - 1; i >= 0; i-- {
 		sessionID := sessionIDs[i]
 		
-		session, err := s.GetSession(sessionID)
+		session, err := s.GetSession(userID, sessionID)
 		if err != nil {
 			// Skip sessions that can't be loaded
 			continue
@@ -128,9 +154,9 @@ func (s *LevelDBStorage) GetSessions() ([]types.ChatSession, error) {
 }
 
 // UpdateSession updates a chat session
-func (s *LevelDBStorage) UpdateSession(session *types.ChatSession) error {
+func (s *LevelDBStorage) UpdateSession(userID string, session *types.ChatSession) error {
 	// Remove old index entry by finding it
-	iter := s.db.NewIterator(util.BytesPrefix([]byte(IndexPrefix+"sessions:")), nil)
+	iter := s.db.NewIterator(util.BytesPrefix([]byte(userSessionIndexPrefix(userID))), nil)
 	defer iter.Release()
 
 	for iter.Next() {
@@ -142,19 +168,19 @@ func (s *LevelDBStorage) UpdateSession(session *types.ChatSession) error {
 	}
 
 	// Create session (will update existing and create new index)
-	return s.CreateSession(session)
+	return s.CreateSession(userID, session)
 }
 
 // DeleteSession deletes a chat session and its messages
-func (s *LevelDBStorage) DeleteSession(sessionID string) error {
+func (s *LevelDBStorage) DeleteSession(userID, sessionID string) error {
 	// Delete session
-	sessionKey := SessionPrefix + sessionID
+	sessionKey := userSessionKey(userID, sessionID)
 	if err := s.db.Delete([]byte(sessionKey), nil); err != nil {
 		return fmt.Errorf("failed to delete session: %w", err)
 	}
 
 	// Delete all messages for this session
-	messagePrefix := MessagePrefix + sessionID + ":"
+	messagePrefix := userMessagePrefix(userID, sessionID)
 	iter := s.db.NewIterator(util.BytesPrefix([]byte(messagePrefix)), nil)
 	defer iter.Release()
 
@@ -169,7 +195,7 @@ func (s *LevelDBStorage) DeleteSession(sessionID string) error {
 	}
 
 	// Delete session from index
-	indexPrefix := IndexPrefix + "sessions:"
+	indexPrefix := userSessionIndexPrefix(userID)
 	indexIter := s.db.NewIterator(util.BytesPrefix([]byte(indexPrefix)), nil)
 	defer indexIter.Release()
 
@@ -190,9 +216,9 @@ func (s *LevelDBStorage) DeleteSession(sessionID string) error {
 }
 
 // CreateMessage creates a new chat message
-func (s *LevelDBStorage) CreateMessage(message *types.ChatMessage) error {
+func (s *LevelDBStorage) CreateMessage(userID string, message *types.ChatMessage) error {
 	// Use timestamp in key for ordering
-	messageKey := MessagePrefix + message.SessionID + ":" + message.Timestamp.Format(time.RFC3339Nano) + ":" + message.ID
+	messageKey := userMessageKey(userID, message.SessionID, message.Timestamp.Format(time.RFC3339Nano), message.ID)
 	
 	data, err := json.Marshal(message)
 	if err != nil {
@@ -204,13 +230,13 @@ func (s *LevelDBStorage) CreateMessage(message *types.ChatMessage) error {
 	}
 
 	// Update session timestamp
-	session, err := s.GetSession(message.SessionID)
+	session, err := s.GetSession(userID, message.SessionID)
 	if err != nil {
 		return fmt.Errorf("failed to get session for update: %w", err)
 	}
 
 	session.UpdatedAt = message.Timestamp
-	if err := s.UpdateSession(session); err != nil {
+	if err := s.UpdateSession(userID, session); err != nil {
 		return fmt.Errorf("failed to update session timestamp: %w", err)
 	}
 
@@ -218,10 +244,10 @@ func (s *LevelDBStorage) CreateMessage(message *types.ChatMessage) error {
 }
 
 // GetMessages retrieves all messages for a session
-func (s *LevelDBStorage) GetMessages(sessionID string) ([]types.ChatMessage, error) {
+func (s *LevelDBStorage) GetMessages(userID, sessionID string) ([]types.ChatMessage, error) {
 	var messages []types.ChatMessage
-	
-	messagePrefix := MessagePrefix + sessionID + ":"
+
+	messagePrefix := userMessagePrefix(userID, sessionID)
 	iter := s.db.NewIterator(util.BytesPrefix([]byte(messagePrefix)), nil)
 	defer iter.Release()
 
@@ -250,14 +276,14 @@ func (s *LevelDBStorage) GetMessages(sessionID string) ([]types.ChatMessage, err
 	return messages, nil
 }
 
-// SaveSettings saves application settings
-func (s *LevelDBStorage) SaveSettings(settings *types.AppSettings) error {
+// SaveSettings saves application settings for a user
+func (s *LevelDBStorage) SaveSettings(userID string, settings *types.AppSettings) error {
 	data, err := json.Marshal(settings)
 	if err != nil {
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
 
-	settingsKey := SettingsPrefix + "app_settings"
+	settingsKey := userSettingsKey(userID)
 	if err := s.db.Put([]byte(settingsKey), data, nil); err != nil {
 		return fmt.Errorf("failed to save settings: %w", err)
 	}
@@ -265,9 +291,9 @@ func (s *LevelDBStorage) SaveSettings(settings *types.AppSettings) error {
 	return nil
 }
 
-// LoadSettings loads application settings
-func (s *LevelDBStorage) LoadSettings() (*types.AppSettings, error) {
-	settingsKey := SettingsPrefix + "app_settings"
+// LoadSettings loads application settings for a user
+func (s *LevelDBStorage) LoadSettings(userID string) (*types.AppSettings, error) {
+	settingsKey := userSettingsKey(userID)
 	
 	data, err := s.db.Get([]byte(settingsKey), nil)
 	if err != nil {
