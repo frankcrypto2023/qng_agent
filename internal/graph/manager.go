@@ -227,7 +227,27 @@ func (m *LLMGraphManager) intentAnalysisNode(ctx context.Context, state []llms.M
 	if result.Intent == "sub_workflow" {
 		// First check if LLM provided a complete sub_workflow structure
 		if result.SubWorkflow != nil {
-			log.Printf("Using LLM-generated sub-workflow: %+v", result.SubWorkflow)
+			log.Printf("=== LLM GENERATED SUB-WORKFLOW DETAILS ===")
+			log.Printf("Workflow ID: %s", result.SubWorkflow.ID)
+			log.Printf("Workflow Name: %s", result.SubWorkflow.Name)
+			log.Printf("Workflow Description: %s", result.SubWorkflow.Description)
+			log.Printf("Execution Mode: %s", result.SubWorkflow.ExecutionMode)
+			log.Printf("Aggregation Strategy: %s", result.SubWorkflow.AggregationStrategy)
+			log.Printf("Number of Tasks: %d", len(result.SubWorkflow.Tasks))
+
+			for i, task := range result.SubWorkflow.Tasks {
+				log.Printf("--- Task %d ---", i+1)
+				log.Printf("  Task ID: %s", task.ID)
+				log.Printf("  Task Type: %s", task.TaskType)
+				log.Printf("  Tool Name: %s", task.ToolName)
+				log.Printf("  Description: %s", task.Description)
+				log.Printf("  RPC: %s", task.RPC)
+				log.Printf("  Depends On: %v", task.DependsOn)
+				log.Printf("  Parameters: %+v", task.Parameters)
+				// Note: OutputMapping field not available in TaskExecution type
+			}
+			log.Printf("=== END SUB-WORKFLOW DETAILS ===")
+
 			// Ensure all tasks have proper TaskType set
 			for i := range result.SubWorkflow.Tasks {
 				if result.SubWorkflow.Tasks[i].TaskType == "" {
@@ -239,11 +259,35 @@ func (m *LLMGraphManager) intentAnalysisNode(ctx context.Context, state []llms.M
 			}
 		} else if result.MultiTask {
 			// Fallback: generate using legacy method if LLM didn't provide sub_workflow
+			log.Printf("LLM did not provide sub-workflow structure, generating using legacy method...")
 			subWorkflow := m.generateSubWorkflowFromAnalysis(userMessage, &result)
 			if subWorkflow != nil {
 				result.SubWorkflow = subWorkflow
-				log.Printf("Generated sub-workflow using legacy method: %+v", result.SubWorkflow)
+				log.Printf("=== GENERATED SUB-WORKFLOW DETAILS (LEGACY) ===")
+				log.Printf("Workflow ID: %s", result.SubWorkflow.ID)
+				log.Printf("Workflow Name: %s", result.SubWorkflow.Name)
+				log.Printf("Workflow Description: %s", result.SubWorkflow.Description)
+				log.Printf("Execution Mode: %s", result.SubWorkflow.ExecutionMode)
+				log.Printf("Aggregation Strategy: %s", result.SubWorkflow.AggregationStrategy)
+				log.Printf("Number of Tasks: %d", len(result.SubWorkflow.Tasks))
+
+				for i, task := range result.SubWorkflow.Tasks {
+					log.Printf("--- Task %d ---", i+1)
+					log.Printf("  Task ID: %s", task.ID)
+					log.Printf("  Task Type: %s", task.TaskType)
+					log.Printf("  Tool Name: %s", task.ToolName)
+					log.Printf("  Description: %s", task.Description)
+					log.Printf("  RPC: %s", task.RPC)
+					log.Printf("  Depends On: %v", task.DependsOn)
+					log.Printf("  Parameters: %+v", task.Parameters)
+					// Note: OutputMapping field not available in TaskExecution type
+				}
+				log.Printf("=== END GENERATED SUB-WORKFLOW DETAILS ===")
+			} else {
+				log.Printf("Failed to generate sub-workflow using legacy method")
 			}
+		} else {
+			log.Printf("LLM determined sub-workflow intent but provided no sub-workflow structure and MultiTask is false")
 		}
 	}
 
@@ -496,7 +540,20 @@ func (m *LLMGraphManager) subWorkflowExecutionNode(ctx context.Context, state []
 	}
 
 	subWorkflow := intentResult.SubWorkflow
-	log.Printf("Executing sub-workflow: %s with %d tasks", subWorkflow.Name, len(subWorkflow.Tasks))
+	log.Printf("=== EXECUTING SUB-WORKFLOW ===")
+	log.Printf("Workflow Name: %s", subWorkflow.Name)
+	log.Printf("Number of Tasks: %d", len(subWorkflow.Tasks))
+	log.Printf("Execution Mode: %s", subWorkflow.ExecutionMode)
+	log.Printf("Aggregation Strategy: %s", subWorkflow.AggregationStrategy)
+
+	// Log task details before execution
+	for i, task := range subWorkflow.Tasks {
+		log.Printf("Pre-execution Task %d: %s", i+1, task.ID)
+		log.Printf("  Tool: %s", task.ToolName)
+		log.Printf("  Parameters: %+v", task.Parameters)
+		log.Printf("  Depends On: %v", task.DependsOn)
+		log.Printf("  RPC: %s", task.RPC)
+	}
 
 	// Execute tasks based on execution mode
 	var taskResults []types.TaskResult
@@ -604,27 +661,41 @@ func (m *LLMGraphManager) executeTasksSequentially(ctx context.Context, tasks []
 
 // resolveDependentParameters resolves parameters that depend on previous task results using LLM
 func (m *LLMGraphManager) resolveDependentParameters(ctx context.Context, task types.TaskExecution, previousResults []types.TaskResult, resultMap map[string]map[string]interface{}) (types.TaskExecution, error) {
-	log.Printf("Resolving dependent parameters for task %s, depends on: %v", task.ID, task.DependsOn)
+	log.Printf("=== RESOLVING DEPENDENT PARAMETERS ===")
+	log.Printf("Task ID: %s", task.ID)
+	log.Printf("Tool Name: %s", task.ToolName)
+	log.Printf("Original Parameters: %+v", task.Parameters)
+	log.Printf("Depends On: %v", task.DependsOn)
 
 	// Collect dependency results
 	dependencyContext := make(map[string]interface{})
 	for _, depTaskID := range task.DependsOn {
 		if result, exists := resultMap[depTaskID]; exists {
 			dependencyContext[depTaskID] = result
+			log.Printf("Found dependency result for %s: %+v", depTaskID, result)
+		} else {
+			log.Printf("WARNING: No result found for dependency %s", depTaskID)
 		}
 	}
 
+	log.Printf("Dependency Context: %+v", dependencyContext)
+
 	// Use LLM to extract parameters from dependency results
+	log.Printf("Calling LLM to extract parameters...")
 	resolvedParameters, err := m.extractParametersWithLLM(ctx, task, dependencyContext)
 	if err != nil {
+		log.Printf("LLM parameter extraction failed: %v", err)
 		return task, fmt.Errorf("LLM parameter extraction failed: %w", err)
 	}
+
+	log.Printf("LLM extracted parameters: %+v", resolvedParameters)
 
 	// Create resolved task with updated parameters
 	resolvedTask := task
 	resolvedTask.Parameters = resolvedParameters
 
-	log.Printf("Task %s parameters resolved: %+v", task.ID, resolvedParameters)
+	log.Printf("Final resolved task parameters: %+v", resolvedTask.Parameters)
+	log.Printf("=== END PARAMETER RESOLUTION ===")
 	return resolvedTask, nil
 }
 
@@ -722,12 +793,19 @@ Expected JSON format:
 
 // extractParametersWithLLM uses LLM to extract parameters from previous task results
 func (m *LLMGraphManager) extractParametersWithLLM(ctx context.Context, task types.TaskExecution, dependencyResults map[string]interface{}) (map[string]interface{}, error) {
+	log.Printf("=== EXTRACTING PARAMETERS WITH LLM ===")
+	log.Printf("Current Task: %s (%s)", task.ID, task.ToolName)
+	log.Printf("Dependency Results Count: %d", len(dependencyResults))
+
 	// Build context information for LLM
 	contextStr := ""
 	for taskID, result := range dependencyResults {
 		resultJSON, _ := json.Marshal(result)
 		contextStr += fmt.Sprintf("Task %s result: %s\n", taskID, string(resultJSON))
+		log.Printf("Dependency %s result: %s", taskID, string(resultJSON))
 	}
+
+	log.Printf("Context string for LLM: %s", contextStr)
 
 	// Get available MCP tools to understand parameter requirements
 	mcpTools := m.getAvailableMCPTools()
@@ -795,27 +873,39 @@ Expected JSON format:
 		{Role: "user", Content: prompt},
 	}
 
+	log.Printf("Sending prompt to LLM for parameter extraction...")
+	log.Printf("Prompt length: %d characters", len(prompt))
+
 	response, err := m.llmClient.GetCompletion(ctx, chatMessages)
 	if err != nil {
+		log.Printf("LLM completion failed: %v", err)
 		return nil, fmt.Errorf("LLM completion failed: %w", err)
 	}
+
+	log.Printf("LLM response received: %s", response)
 
 	// Parse LLM response as JSON
 	var extractedParams map[string]interface{}
 	if err := json.Unmarshal([]byte(response), &extractedParams); err != nil {
+		log.Printf("Failed to parse LLM response as JSON: %v", err)
 		// Try to extract JSON from response
 		jsonStart := strings.Index(response, "{")
 		jsonEnd := strings.LastIndex(response, "}")
 		if jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart {
 			jsonStr := response[jsonStart : jsonEnd+1]
+			log.Printf("Extracted JSON string: %s", jsonStr)
 			if err := json.Unmarshal([]byte(jsonStr), &extractedParams); err != nil {
+				log.Printf("Failed to parse extracted JSON: %v", err)
 				return nil, fmt.Errorf("failed to parse LLM response as JSON: %w", err)
 			}
 		} else {
+			log.Printf("No valid JSON found in LLM response")
 			return nil, fmt.Errorf("no valid JSON found in LLM response: %s", response)
 		}
 	}
 
+	log.Printf("Successfully extracted parameters: %+v", extractedParams)
+	log.Printf("=== END LLM PARAMETER EXTRACTION ===")
 	return extractedParams, nil
 }
 
@@ -902,8 +992,30 @@ Return ONLY the formatted response, no additional explanations.`,
 	return response, nil
 }
 
-// executeTasksInParallel executes tasks concurrently
+// executeTasksInParallel executes tasks concurrently with dependency resolution
 func (m *LLMGraphManager) executeTasksInParallel(ctx context.Context, tasks []types.TaskExecution) ([]types.TaskResult, error) {
+	// First, check if any tasks have dependencies
+	hasDependencies := false
+	for _, task := range tasks {
+		if len(task.DependsOn) > 0 {
+			hasDependencies = true
+			break
+		}
+	}
+
+	// If no dependencies, execute all tasks in parallel
+	if !hasDependencies {
+		return m.executeTasksInParallelSimple(ctx, tasks)
+	}
+
+	// If there are dependencies, use a hybrid approach:
+	// 1. Execute independent tasks in parallel
+	// 2. Execute dependent tasks after their dependencies complete
+	return m.executeTasksWithDependencies(ctx, tasks)
+}
+
+// executeTasksInParallelSimple executes tasks concurrently without dependency resolution
+func (m *LLMGraphManager) executeTasksInParallelSimple(ctx context.Context, tasks []types.TaskExecution) ([]types.TaskResult, error) {
 	var results []types.TaskResult
 	resultsChan := make(chan types.TaskResult, len(tasks))
 	errorsChan := make(chan error, len(tasks))
@@ -950,6 +1062,99 @@ func (m *LLMGraphManager) executeTasksInParallel(ctx context.Context, tasks []ty
 	default:
 		return results, nil
 	}
+}
+
+// executeTasksWithDependencies executes tasks with proper dependency resolution
+func (m *LLMGraphManager) executeTasksWithDependencies(ctx context.Context, tasks []types.TaskExecution) ([]types.TaskResult, error) {
+	var results []types.TaskResult
+	resultMap := make(map[string]map[string]interface{}) // taskID -> result data
+	completedTasks := make(map[string]bool)
+
+	// Create a map for quick task lookup
+	taskMap := make(map[string]types.TaskExecution)
+	for _, task := range tasks {
+		taskMap[task.ID] = task
+	}
+
+	// Execute tasks in rounds based on dependencies
+	for len(completedTasks) < len(tasks) {
+		var readyTasks []types.TaskExecution
+
+		// Find tasks that are ready to execute (no dependencies or all dependencies completed)
+		for _, task := range tasks {
+			if completedTasks[task.ID] {
+				continue
+			}
+
+			ready := true
+			for _, depID := range task.DependsOn {
+				if !completedTasks[depID] {
+					ready = false
+					break
+				}
+			}
+
+			if ready {
+				readyTasks = append(readyTasks, task)
+			}
+		}
+
+		if len(readyTasks) == 0 {
+			// This shouldn't happen if the dependency graph is valid
+			return results, fmt.Errorf("circular dependency or invalid task dependencies detected")
+		}
+
+		// Resolve parameters for ready tasks that have dependencies
+		var resolvedTasks []types.TaskExecution
+		for _, task := range readyTasks {
+			if len(task.DependsOn) > 0 {
+				log.Printf("=== RESOLVING PARAMETERS FOR TASK: %s ===", task.ID)
+				log.Printf("Original parameters: %+v", task.Parameters)
+				log.Printf("Dependencies: %v", task.DependsOn)
+				log.Printf("Available results: %+v", resultMap)
+
+				// Resolve dependent parameters
+				resolvedTask, err := m.resolveDependentParameters(ctx, task, results, resultMap)
+				if err != nil {
+					log.Printf("Failed to resolve parameters for task %s: %v", task.ID, err)
+					// Add failed task to results
+					results = append(results, types.TaskResult{
+						TaskID:  task.ID,
+						Success: false,
+						Error:   err.Error(),
+						RPC:     task.RPC,
+					})
+					completedTasks[task.ID] = true
+					continue
+				}
+
+				log.Printf("Resolved parameters: %+v", resolvedTask.Parameters)
+				log.Printf("=== END PARAMETER RESOLUTION FOR TASK: %s ===", task.ID)
+				resolvedTasks = append(resolvedTasks, resolvedTask)
+			} else {
+				log.Printf("Task %s has no dependencies, using original parameters: %+v", task.ID, task.Parameters)
+				resolvedTasks = append(resolvedTasks, task)
+			}
+		}
+
+		// Execute resolved tasks in parallel
+		roundResults, err := m.executeTasksInParallelSimple(ctx, resolvedTasks)
+		if err != nil {
+			return results, err
+		}
+
+		// Process results and update state
+		for _, taskResult := range roundResults {
+			results = append(results, taskResult)
+			completedTasks[taskResult.TaskID] = true
+
+			if taskResult.Success && taskResult.Result != nil {
+				resultMap[taskResult.TaskID] = taskResult.Result
+			}
+		}
+	}
+
+	return results, nil
 }
 
 // executeTask executes a single task based on its type
