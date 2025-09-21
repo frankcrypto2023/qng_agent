@@ -10,7 +10,6 @@ import (
 	"qng-agent/internal/mcp"
 	"qng-agent/internal/storage"
 	"qng-agent/internal/types"
-	"regexp"
 	"strings"
 	"time"
 
@@ -21,7 +20,7 @@ import (
 // LLMGraphManager manages the LLM graph workflow using official QNG graph library
 type LLMGraphManager struct {
 	llmClient  llm.Client
-	llmManager *llm.Manager  // Add LLM manager reference for configuration updates
+	llmManager *llm.Manager // Add LLM manager reference for configuration updates
 	config     *config.Config
 	storage    storage.Storage
 	mcpClient  *mcp.Client
@@ -62,7 +61,7 @@ func (m *LLMGraphManager) ProcessUserMessage(ctx context.Context, userID, userMe
 			}
 
 			// Update MCP servers if available
-			if settings.MCPServers != nil && len(settings.MCPServers) > 0 {
+			if len(settings.MCPServers) > 0 {
 				m.mcpClient.UpdateServers(settings.MCPServers)
 				log.Printf("Updated MCP servers for user %s: %d servers configured", userID, len(settings.MCPServers))
 			} else {
@@ -201,25 +200,25 @@ func (m *LLMGraphManager) intentAnalysisNode(ctx context.Context, state []llms.M
 	// Parse the JSON response
 	var result types.IntentAnalysisResult
 	if err := json.Unmarshal([]byte(response), &result); err != nil {
-		// Fallback: try to extract intent from response text
-		response = strings.ToLower(response)
-		if strings.Contains(response, "stateroot") || strings.Contains(response, "node") || strings.Contains(response, "balance") {
-			result = types.IntentAnalysisResult{
-				Intent:     "mcp_tool",
-				Confidence: 0.8,
-				MCPTool:    m.extractToolFromMessage(userMessage),
-				Parameters: m.extractParametersFromMessage(userMessage),
-			}
-		} else if strings.Contains(response, "swap") || strings.Contains(response, "stake") || strings.Contains(response, "workflow") {
-			result = types.IntentAnalysisResult{
-				Intent:       "web3_workflow",
-				Confidence:   0.8,
-				WorkflowName: "token_swap",
+		// If JSON parsing fails, try to extract JSON from the response
+		jsonStart := strings.Index(response, "{")
+		jsonEnd := strings.LastIndex(response, "}")
+		if jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart {
+			jsonStr := response[jsonStart : jsonEnd+1]
+			if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+				log.Printf("Failed to parse LLM response as JSON: %v", err)
+				// Return a general conversation intent as fallback
+				result = types.IntentAnalysisResult{
+					Intent:     "general_conversation",
+					Confidence: 0.5,
+				}
 			}
 		} else {
+			log.Printf("No valid JSON found in LLM response: %s", response)
+			// Return a general conversation intent as fallback
 			result = types.IntentAnalysisResult{
 				Intent:     "general_conversation",
-				Confidence: 0.9,
+				Confidence: 0.5,
 			}
 		}
 	}
@@ -264,249 +263,120 @@ func (m *LLMGraphManager) intentAnalysisNode(ctx context.Context, state []llms.M
 
 // generateSubWorkflowFromAnalysis generates a sub-workflow based on LLM analysis result
 func (m *LLMGraphManager) generateSubWorkflowFromAnalysis(userMessage string, intentResult *types.IntentAnalysisResult) *types.SubWorkflow {
-	// Extract information from LLM analysis
-	rpcURLs := m.extractRPCURLsFromIntentResult(intentResult)
-	if len(rpcURLs) == 0 {
-		// Fallback: extract URLs from message directly
-		rpcURLs = m.extractRPCURLs(userMessage)
-	}
-
-	if len(rpcURLs) < 2 {
-		log.Printf("Not enough RPC URLs for sub-workflow: %v", rpcURLs)
+	// Use LLM to generate the sub-workflow structure
+	subWorkflow, err := m.generateSubWorkflowWithLLM(userMessage, intentResult)
+	if err != nil {
+		log.Printf("Failed to generate sub-workflow with LLM: %v", err)
 		return nil
-	}
-
-	// Determine operation type and tool from LLM analysis or message content
-	operation, toolName := m.determineOperationFromAnalysis(intentResult, userMessage)
-	if toolName == "" {
-		log.Printf("Could not determine tool for sub-workflow")
-		return nil
-	}
-
-	// Extract common parameters
-	parameters := m.extractParametersFromAnalysis(intentResult, userMessage)
-
-	// Generate sub-workflow with dynamic naming based on operation
-	operationDisplayName := m.getOperationDisplayName(operation)
-	subWorkflow := &types.SubWorkflow{
-		ID:                  fmt.Sprintf("%s_workflow_%d", operation, time.Now().Unix()),
-		Name:                fmt.Sprintf("Multi-RPC %s Operation", operationDisplayName),
-		Description:         fmt.Sprintf("Execute %s operation across %d RPC endpoints", operationDisplayName, len(rpcURLs)),
-		ExecutionMode:       "sequential", // Default to sequential for better logging and debugging
-		AggregationStrategy: "compare",    // Default to comparison for multi-RPC operations
-		Tasks:               make([]types.TaskExecution, 0, len(rpcURLs)),
-	}
-
-	// Create tasks for each RPC URL
-	for i, rpcURL := range rpcURLs {
-		taskParams := make(map[string]interface{})
-		// Copy common parameters
-		for k, v := range parameters {
-			taskParams[k] = v
-		}
-		// Add RPC-specific parameter
-		taskParams["rpc"] = rpcURL
-
-		task := types.TaskExecution{
-			ID:          fmt.Sprintf("%s_task_%d", operation, i+1),
-			TaskType:    "mcp_tool",
-			ToolName:    toolName,
-			Parameters:  taskParams,
-			RPC:         rpcURL,
-			Order:       i + 1,
-			Description: fmt.Sprintf("Execute %s on %s", operation, rpcURL),
-		}
-		subWorkflow.Tasks = append(subWorkflow.Tasks, task)
 	}
 
 	return subWorkflow
 }
 
-// extractRPCURLsFromIntentResult extracts RPC URLs from LLM intent analysis result
-func (m *LLMGraphManager) extractRPCURLsFromIntentResult(intentResult *types.IntentAnalysisResult) []string {
-	// Check if LLM provided rpc_urls in the analysis
-	if intentResult.Parameters != nil {
-		if rpcURLsInterface, exists := intentResult.Parameters["rpc_urls"]; exists {
-			if rpcURLsArray, ok := rpcURLsInterface.([]interface{}); ok {
-				var urls []string
-				for _, url := range rpcURLsArray {
-					if urlStr, ok := url.(string); ok {
-						urls = append(urls, urlStr)
-					}
-				}
-				return urls
+// generateSubWorkflowWithLLM uses LLM to generate a complete sub-workflow structure
+func (m *LLMGraphManager) generateSubWorkflowWithLLM(userMessage string, intentResult *types.IntentAnalysisResult) (*types.SubWorkflow, error) {
+	// Get available MCP tools
+	mcpTools := m.getAvailableMCPTools()
+
+	// Create LLM prompt for sub-workflow generation
+	prompt := fmt.Sprintf(`You are a blockchain workflow generation assistant.
+
+USER REQUEST: "%s"
+INTENT ANALYSIS: %s
+
+AVAILABLE MCP TOOLS:
+%s
+
+YOUR TASK: Generate a complete sub-workflow structure based on the user request and intent analysis.
+
+INSTRUCTIONS:
+1. Analyze the user request to understand what needs to be done
+2. Identify all required tools and their dependencies
+3. Create tasks with proper parameter mappings
+4. Set appropriate execution mode (parallel/sequential/mixed)
+5. Define aggregation strategy for results
+
+WORKFLOW GENERATION RULES:
+- Each task should have a unique ID
+- Tasks that depend on others should specify depends_on
+- Use {{previous_task_output}} for dynamic parameters
+- RPC URLs should be extracted from the user message
+- Tool names should match available MCP tools exactly
+
+PARAMETER MAPPING RULES:
+- For qng_get_stateroot tool: use "block_order" and "rpc_url" parameters
+- For qng_get_block_by_order tool: use "block_order" and "rpc_url" parameters
+- For qng_get_block_count tool: only "rpc_url" parameter needed
+- Always use "rpc_url" for RPC endpoint (not "rpc")
+- Use "block_order" for block numbers (not "order")
+
+COMMON PATTERNS:
+- Multiple RPC queries: parallel execution, compare aggregation
+- Sequential operations: sequential execution, merge aggregation
+- Data analysis: mixed execution, summarize aggregation
+
+Return ONLY a JSON object with the complete sub-workflow structure:
+{
+  "id": "generated_workflow_id",
+  "name": "descriptive_name",
+  "description": "what_this_accomplishes",
+  "execution_mode": "parallel|sequential|mixed",
+  "aggregation_strategy": "compare|summarize|merge|raw",
+  "tasks": [
+    {
+      "id": "task_id",
+      "task_type": "mcp_tool",
+      "tool_name": "exact_tool_name",
+      "parameters": {"rpc_url": "http://example.com", "block_order": "{{previous_task_output}}"},
+      "depends_on": ["task_ids_this_depends_on"],
+      "description": "task_description"
+    }
+  ]
+}`,
+		userMessage,
+		fmt.Sprintf("%+v", intentResult),
+		mcpTools)
+
+	// Call LLM for sub-workflow generation
+	chatMessages := []types.ChatMessage{
+		{Role: "user", Content: prompt},
+	}
+
+	ctx := context.Background()
+	response, err := m.llmClient.GetCompletion(ctx, chatMessages)
+	if err != nil {
+		return nil, fmt.Errorf("LLM completion failed: %w", err)
+	}
+
+	// Parse LLM response as JSON
+	var subWorkflow types.SubWorkflow
+	if err := json.Unmarshal([]byte(response), &subWorkflow); err != nil {
+		// Try to extract JSON from response
+		jsonStart := strings.Index(response, "{")
+		jsonEnd := strings.LastIndex(response, "}")
+		if jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart {
+			jsonStr := response[jsonStart : jsonEnd+1]
+			if err := json.Unmarshal([]byte(jsonStr), &subWorkflow); err != nil {
+				return nil, fmt.Errorf("failed to parse LLM response as JSON: %w", err)
 			}
-		}
-	}
-	return []string{}
-}
-
-// determineOperationFromAnalysis determines the operation type and tool name from LLM analysis
-func (m *LLMGraphManager) determineOperationFromAnalysis(intentResult *types.IntentAnalysisResult, userMessage string) (string, string) {
-	// First check if LLM provided task_parameters with operation
-	if intentResult.Parameters != nil {
-		if taskParams, exists := intentResult.Parameters["task_parameters"]; exists {
-			if taskParamsMap, ok := taskParams.(map[string]interface{}); ok {
-				if operation, exists := taskParamsMap["operation"]; exists {
-					if operationStr, ok := operation.(string); ok {
-						toolName := m.getToolForOperation(operationStr)
-						return operationStr, toolName
-					}
-				}
-			}
+		} else {
+			return nil, fmt.Errorf("no valid JSON found in LLM response")
 		}
 	}
 
-	// Fallback: analyze message content to determine operation
-	message := strings.ToLower(userMessage)
-	if strings.Contains(message, "stateroot") {
-		return "stateroot", "get_block_stateroot"
-	}
-	if strings.Contains(message, "区块总数") || strings.Contains(message, "区块总量") || strings.Contains(message, "block count") || strings.Contains(message, "block_count") {
-		return "block_count", "get_block_count"
-	}
-	if strings.Contains(message, "block") && !strings.Contains(message, "stateroot") && !strings.Contains(message, "count") {
-		return "block", "get_block_by_order"
-	}
-	if strings.Contains(message, "balance") || strings.Contains(message, "余额") {
-		return "balance", "get_balance"
+	// Validate and enhance the generated sub-workflow
+	if subWorkflow.ID == "" {
+		subWorkflow.ID = fmt.Sprintf("sub_workflow_%d", time.Now().Unix())
 	}
 
-	// Default fallback - try to infer from available context
-	log.Printf("Could not determine operation from message: %s", userMessage)
-	return "unknown", ""
-}
-
-// getToolForOperation maps operation names to MCP tool names
-func (m *LLMGraphManager) getToolForOperation(operation string) string {
-	switch strings.ToLower(operation) {
-	case "stateroot":
-		return "get_block_stateroot"
-	case "block_count", "count":
-		return "get_block_count"
-	case "block":
-		return "get_block_by_order"
-	case "balance":
-		return "get_balance"
-	default:
-		log.Printf("Unknown operation: %s", operation)
-		return "" // Return empty instead of default
-	}
-}
-
-// getOperationDisplayName returns a user-friendly display name for operations
-func (m *LLMGraphManager) getOperationDisplayName(operation string) string {
-	switch strings.ToLower(operation) {
-	case "stateroot":
-		return "StateRoot Query"
-	case "block_count", "count":
-		return "Block Count Query"
-	case "block":
-		return "Block Data Query"
-	case "balance":
-		return "Balance Query"
-	default:
-		return strings.Title(operation) + " Query"
-	}
-}
-
-// extractParametersFromAnalysis extracts common parameters for all tasks
-func (m *LLMGraphManager) extractParametersFromAnalysis(intentResult *types.IntentAnalysisResult, userMessage string) map[string]interface{} {
-	parameters := make(map[string]interface{})
-
-	// First check LLM analysis results
-	if intentResult.Parameters != nil {
-		if taskParams, exists := intentResult.Parameters["task_parameters"]; exists {
-			if taskParamsMap, ok := taskParams.(map[string]interface{}); ok {
-				for k, v := range taskParamsMap {
-					if k != "operation" { // Don't include operation as a parameter
-						parameters[k] = v
-					}
-				}
-			}
+	// Ensure all tasks have proper task_type
+	for i := range subWorkflow.Tasks {
+		if subWorkflow.Tasks[i].TaskType == "" {
+			subWorkflow.Tasks[i].TaskType = "mcp_tool"
 		}
 	}
 
-	// Fallback: extract from message content
-	if len(parameters) == 0 {
-		// Extract order if present
-		if order := m.extractOrderFromMessage(userMessage); order > 0 {
-			parameters["order"] = order
-		}
-	}
-
-	return parameters
-}
-
-// extractParametersFromMessage extracts parameters from user message (fallback method)
-func (m *LLMGraphManager) extractParametersFromMessage(userMessage string) map[string]interface{} {
-	parameters := make(map[string]interface{})
-
-	// Extract RPC URL
-	rpcURLs := m.extractRPCURLs(userMessage)
-	if len(rpcURLs) > 0 {
-		parameters["rpc"] = rpcURLs[0] // Use first RPC URL for single tool calls
-	}
-
-	// Extract order if present
-	if order := m.extractOrderFromMessage(userMessage); order > 0 {
-		parameters["order"] = order
-	}
-
-	// Extract address if present
-	if address := m.extractAddress(userMessage); address != "" {
-		parameters["address"] = address
-	}
-
-	return parameters
-}
-
-// extractRPCURLs extracts all HTTP RPC URLs from the user message
-func (m *LLMGraphManager) extractRPCURLs(message string) []string {
-	// Regular expression to match HTTP URLs
-	urlRegex := regexp.MustCompile(`https?://[^\s]+`)
-	matches := urlRegex.FindAllString(message, -1)
-
-	var rpcURLs []string
-	for _, match := range matches {
-		// Clean up URL (remove trailing punctuation)
-		url := strings.TrimRight(match, ".,;!?")
-		// Add trailing slash if not present and ends with port
-		if strings.Contains(url, ":") && !strings.HasSuffix(url, "/") {
-			url += "/"
-		}
-		rpcURLs = append(rpcURLs, url)
-	}
-
-	return rpcURLs
-}
-
-// extractOrderFromMessage extracts order number from user message
-func (m *LLMGraphManager) extractOrderFromMessage(message string) int {
-	// Look for "order" followed by number
-	orderRegex := regexp.MustCompile(`order\s+(\d+)`)
-	matches := orderRegex.FindStringSubmatch(strings.ToLower(message))
-	if len(matches) > 1 {
-		var order int
-		fmt.Sscanf(matches[1], "%d", &order)
-		return order
-	}
-	return 0
-}
-
-// extractToolFromMessage extracts likely MCP tool from user message
-func (m *LLMGraphManager) extractToolFromMessage(message string) string {
-	message = strings.ToLower(message)
-	if strings.Contains(message, "stateroot") {
-		return "stateroot"
-	}
-	if strings.Contains(message, "balance") {
-		return "balance"
-	}
-	if strings.Contains(message, "status") || strings.Contains(message, "node") {
-		return "node_status"
-	}
-	return "unknown"
+	return &subWorkflow, nil
 }
 
 // mcpToolExecutionNode executes MCP tools via real MCP server calls
@@ -515,15 +385,6 @@ func (m *LLMGraphManager) mcpToolExecutionNode(ctx context.Context, state []llms
 	var intentResult types.IntentAnalysisResult
 
 	for _, msg := range state {
-		// if msg.Role == llms.ChatMessageTypeHuman {
-		// 	for _, part := range msg.Parts {
-		// 		if textPart, ok := part.(llms.TextContent); ok {
-		// 			userMessage = textPart.Text
-		// 			break
-		// 		}
-		// 	}
-		// }
-
 		if msg.Role == llms.ChatMessageTypeSystem {
 			for _, part := range msg.Parts {
 				if textPart, ok := part.(llms.TextContent); ok {
@@ -538,10 +399,24 @@ func (m *LLMGraphManager) mcpToolExecutionNode(ctx context.Context, state []llms
 		}
 	}
 
+	// Validate intent result
+	if intentResult.MCPTool == "" {
+		return state, fmt.Errorf("no MCP tool specified in intent result")
+	}
+
 	// Prepare parameters for MCP tool call
 	parameters := intentResult.Parameters
 	if parameters == nil {
 		parameters = make(map[string]interface{})
+	}
+
+	// Use LLM to validate and enhance parameters if needed
+	enhancedParams, err := m.enhanceParametersWithLLM(ctx, intentResult.MCPTool, parameters, state)
+	if err != nil {
+		log.Printf("Failed to enhance parameters with LLM: %v", err)
+		// Continue with original parameters
+	} else {
+		parameters = enhancedParams
 	}
 
 	log.Printf("Calling MCP tool '%s' with parameters: %+v", intentResult.MCPTool, parameters)
@@ -577,11 +452,19 @@ func (m *LLMGraphManager) mcpToolExecutionNode(ctx context.Context, state []llms
 
 	log.Printf("MCP tool execution successful: %s", string(resultData))
 
-	// Add tool result to state
+	// Format the result using LLM for better user experience
+	formattedResult, err := m.formatToolResultWithLLM(ctx, intentResult.MCPTool, result, state)
+	if err != nil {
+		log.Printf("Failed to format tool result with LLM: %v", err)
+		// Use raw result if formatting fails
+		formattedResult = string(resultData)
+	}
+
+	// Add formatted tool result to state
 	toolMessage := llms.MessageContent{
 		Role: llms.ChatMessageTypeSystem,
 		Parts: []llms.ContentPart{
-			llms.TextPart(fmt.Sprintf("TOOL_RESULT:%s", string(resultData))),
+			llms.TextPart(fmt.Sprintf("TOOL_RESULT:%s", formattedResult)),
 		},
 	}
 
@@ -722,7 +605,7 @@ func (m *LLMGraphManager) executeTasksSequentially(ctx context.Context, tasks []
 // resolveDependentParameters resolves parameters that depend on previous task results using LLM
 func (m *LLMGraphManager) resolveDependentParameters(ctx context.Context, task types.TaskExecution, previousResults []types.TaskResult, resultMap map[string]map[string]interface{}) (types.TaskExecution, error) {
 	log.Printf("Resolving dependent parameters for task %s, depends on: %v", task.ID, task.DependsOn)
-	
+
 	// Collect dependency results
 	dependencyContext := make(map[string]interface{})
 	for _, depTaskID := range task.DependsOn {
@@ -730,19 +613,111 @@ func (m *LLMGraphManager) resolveDependentParameters(ctx context.Context, task t
 			dependencyContext[depTaskID] = result
 		}
 	}
-	
+
 	// Use LLM to extract parameters from dependency results
 	resolvedParameters, err := m.extractParametersWithLLM(ctx, task, dependencyContext)
 	if err != nil {
 		return task, fmt.Errorf("LLM parameter extraction failed: %w", err)
 	}
-	
+
 	// Create resolved task with updated parameters
 	resolvedTask := task
 	resolvedTask.Parameters = resolvedParameters
-	
+
 	log.Printf("Task %s parameters resolved: %+v", task.ID, resolvedParameters)
 	return resolvedTask, nil
+}
+
+// enhanceParametersWithLLM uses LLM to validate and enhance parameters for MCP tool execution
+func (m *LLMGraphManager) enhanceParametersWithLLM(ctx context.Context, toolName string, parameters map[string]interface{}, state []llms.MessageContent) (map[string]interface{}, error) {
+	// Get user message from state
+	userMessage := ""
+	for _, msg := range state {
+		if msg.Role == llms.ChatMessageTypeHuman {
+			for _, part := range msg.Parts {
+				if textPart, ok := part.(llms.TextContent); ok {
+					userMessage = textPart.Text
+					break
+				}
+			}
+			break
+		}
+	}
+
+	// Get available MCP tools to understand parameter requirements
+	mcpTools := m.getAvailableMCPTools()
+
+	// Create LLM prompt for parameter enhancement
+	prompt := fmt.Sprintf(`You are a blockchain parameter validation assistant.
+
+USER REQUEST: "%s"
+TOOL TO EXECUTE: %s
+CURRENT PARAMETERS: %s
+
+AVAILABLE MCP TOOLS:
+%s
+
+YOUR TASK: Validate and enhance the parameters for the specified tool.
+
+INSTRUCTIONS:
+1. Review the user request and current parameters
+2. Check if all required parameters are present and correctly formatted
+3. Extract any missing parameters from the user message
+4. Ensure parameter types and formats are correct
+5. Add any additional context that might be helpful
+
+COMMON PARAMETER PATTERNS:
+- RPC URLs: Should be complete HTTP/HTTPS URLs (use "rpc_url" parameter)
+- Block numbers: Should be integers (extract from "order", "height", "block" keywords, use "block_order" parameter)
+- Addresses: Should be valid blockchain addresses
+- Token symbols: Should be uppercase (e.g., "MEER", "USDT")
+
+PARAMETER MAPPING RULES:
+- For qng_get_stateroot tool: use "block_order" and "rpc_url" parameters
+- For qng_get_block_by_order tool: use "block_order" and "rpc_url" parameters
+- For qng_get_block_count tool: only "rpc_url" parameter needed
+- Always use "rpc_url" for RPC endpoint (not "rpc")
+
+RULES:
+- Always preserve existing parameters unless they are clearly wrong
+- Extract missing parameters from the user message
+- Return ONLY a JSON object with the enhanced parameters
+- Do not include explanations, just the JSON
+
+Expected JSON format:
+{"rpc_url": "extracted_or_preserved_rpc_url", "block_order": extracted_block_number, "other_param": "value"}`,
+		userMessage,
+		toolName,
+		fmt.Sprintf("%+v", parameters),
+		mcpTools)
+
+	// Call LLM for parameter enhancement
+	chatMessages := []types.ChatMessage{
+		{Role: "user", Content: prompt},
+	}
+
+	response, err := m.llmClient.GetCompletion(ctx, chatMessages)
+	if err != nil {
+		return nil, fmt.Errorf("LLM completion failed: %w", err)
+	}
+
+	// Parse LLM response as JSON
+	var enhancedParams map[string]interface{}
+	if err := json.Unmarshal([]byte(response), &enhancedParams); err != nil {
+		// Try to extract JSON from response
+		jsonStart := strings.Index(response, "{")
+		jsonEnd := strings.LastIndex(response, "}")
+		if jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart {
+			jsonStr := response[jsonStart : jsonEnd+1]
+			if err := json.Unmarshal([]byte(jsonStr), &enhancedParams); err != nil {
+				return parameters, fmt.Errorf("failed to parse LLM response as JSON: %w", err)
+			}
+		} else {
+			return parameters, fmt.Errorf("no valid JSON found in LLM response")
+		}
+	}
+
+	return enhancedParams, nil
 }
 
 // extractParametersWithLLM uses LLM to extract parameters from previous task results
@@ -753,9 +728,12 @@ func (m *LLMGraphManager) extractParametersWithLLM(ctx context.Context, task typ
 		resultJSON, _ := json.Marshal(result)
 		contextStr += fmt.Sprintf("Task %s result: %s\n", taskID, string(resultJSON))
 	}
-	
+
+	// Get available MCP tools to understand parameter requirements
+	mcpTools := m.getAvailableMCPTools()
+
 	// Create LLM prompt for parameter extraction
-	prompt := fmt.Sprintf(`You are a blockchain data extraction assistant. 
+	prompt := fmt.Sprintf(`You are a blockchain data extraction and transformation assistant. 
 
 CONTEXT: Previous task results:
 %s
@@ -764,29 +742,53 @@ CURRENT TASK: %s (tool: %s)
 Task Description: %s
 Original Parameters: %s
 
-YOUR TASK: Extract the required parameters for the current task from the previous task results.
+AVAILABLE MCP TOOLS:
+%s
+
+YOUR TASK: Extract and transform the required parameters for the current task from the previous task results.
 
 INSTRUCTIONS:
-1. Look at the previous task results above
-2. Extract the specific data needed for the current task parameters
-3. For blockchain queries, common parameter mappings:
-   - block_count result → "order" parameter for stateroot/block queries
-   - rpc URLs should be preserved from original parameters
-   - other static parameters should be kept
+1. Analyze the previous task results to understand the data structure
+2. Identify the specific data needed for the current task parameters
+3. Transform data formats as needed (e.g., string to int, extract nested values)
+4. Handle different data sources and formats intelligently
+
+COMMON DATA TRANSFORMATIONS:
+- JSON-RPC responses: Extract "result" field values
+- Block count numbers: Convert to integer for "block_order" parameter
+- RPC URLs: Preserve from original parameters or extract from results
+- Addresses: Validate and format blockchain addresses
+- Timestamps: Convert to appropriate format if needed
+- Nested objects: Extract specific fields using dot notation
+
+ADVANCED EXTRACTION RULES:
+- If result contains {"jsonrpc":"2.0","id":1,"result":13077047}, extract 13077047 as "block_order"
+- If result contains nested data, use appropriate field paths
+- Handle arrays by selecting relevant elements
+- Convert string numbers to integers when needed
+- Preserve original parameter structure unless transformation is needed
+
+PARAMETER MAPPING RULES:
+- For qng_get_stateroot tool: use "block_order" parameter (not "order")
+- For qng_get_block_by_order tool: use "block_order" parameter (not "order")
+- For qng_get_block_count tool: only "rpc_url" parameter needed
+- Always use "rpc_url" for RPC endpoint (not "rpc")
 
 RULES:
-- If you see a block count number like 13078095 in previous results, use it as "order" parameter
-- Always preserve "rpc" parameter from original task parameters
+- Always preserve "rpc_url" parameter from original task parameters
+- Transform data types appropriately (string numbers to int, etc.)
+- Handle missing or malformed data gracefully
 - Return ONLY a JSON object with the resolved parameters
 - Do not include explanations, just the JSON
 
 Expected JSON format:
-{"rpc": "extracted_or_preserved_rpc_url", "order": extracted_block_number_or_other_params}`, 
-		contextStr, 
-		task.ID, 
-		task.ToolName, 
+{"rpc_url": "extracted_or_preserved_rpc_url", "block_order": extracted_block_number, "other_param": "transformed_value"}`,
+		contextStr,
+		task.ID,
+		task.ToolName,
 		task.Description,
-		fmt.Sprintf("%+v", task.Parameters))
+		fmt.Sprintf("%+v", task.Parameters),
+		mcpTools)
 
 	// Call LLM for parameter extraction
 	chatMessages := []types.ChatMessage{
@@ -801,51 +803,103 @@ Expected JSON format:
 	// Parse LLM response as JSON
 	var extractedParams map[string]interface{}
 	if err := json.Unmarshal([]byte(response), &extractedParams); err != nil {
-		// Fallback: try to extract manually if LLM response is not valid JSON
-		log.Printf("LLM response not valid JSON, falling back to manual extraction: %s", response)
-		return m.fallbackParameterExtraction(task, dependencyResults)
+		// Try to extract JSON from response
+		jsonStart := strings.Index(response, "{")
+		jsonEnd := strings.LastIndex(response, "}")
+		if jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart {
+			jsonStr := response[jsonStart : jsonEnd+1]
+			if err := json.Unmarshal([]byte(jsonStr), &extractedParams); err != nil {
+				return nil, fmt.Errorf("failed to parse LLM response as JSON: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("no valid JSON found in LLM response: %s", response)
+		}
 	}
-	
+
 	return extractedParams, nil
 }
 
-// fallbackParameterExtraction provides a fallback mechanism for parameter extraction
-func (m *LLMGraphManager) fallbackParameterExtraction(task types.TaskExecution, dependencyResults map[string]interface{}) (map[string]interface{}, error) {
-	resolvedParams := make(map[string]interface{})
-	
-	// Copy original parameters first
-	for k, v := range task.Parameters {
-		resolvedParams[k] = v
-	}
-	
-	// Try to extract block count from dependency results
-	for _, result := range dependencyResults {
-		if resultMap, ok := result.(map[string]interface{}); ok {
-			if content, exists := resultMap["content"]; exists {
-				if contentArray, ok := content.([]interface{}); ok && len(contentArray) > 0 {
-					if contentItem, ok := contentArray[0].(map[string]interface{}); ok {
-						if text, exists := contentItem["text"]; exists {
-							if textStr, ok := text.(string); ok {
-								// Try to extract block number from JSON response
-								var jsonResp map[string]interface{}
-								if err := json.Unmarshal([]byte(textStr), &jsonResp); err == nil {
-									if result, exists := jsonResp["result"]; exists {
-										if blockCount, ok := result.(float64); ok {
-											resolvedParams["order"] = int(blockCount)
-											log.Printf("Extracted block count %d for task %s", int(blockCount), task.ID)
-											return resolvedParams, nil
-										}
-									}
-								}
-							}
-						}
-					}
+// formatToolResultWithLLM uses LLM to format tool execution results for better user experience
+func (m *LLMGraphManager) formatToolResultWithLLM(ctx context.Context, toolName string, result interface{}, state []llms.MessageContent) (string, error) {
+	// Get user message from state
+	userMessage := ""
+	for _, msg := range state {
+		if msg.Role == llms.ChatMessageTypeHuman {
+			for _, part := range msg.Parts {
+				if textPart, ok := part.(llms.TextContent); ok {
+					userMessage = textPart.Text
+					break
 				}
 			}
+			break
 		}
 	}
-	
-	return resolvedParams, nil
+
+	// Convert result to JSON string for LLM processing
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		resultJSON = []byte(fmt.Sprintf(`{"error": "Failed to marshal result", "raw_result": "%v"}`, result))
+	}
+
+	// Create LLM prompt for result formatting
+	prompt := fmt.Sprintf(`You are a blockchain data presentation assistant.
+
+USER REQUEST: "%s"
+TOOL EXECUTED: %s
+RAW RESULT: %s
+
+YOUR TASK: Format the tool execution result into a user-friendly response.
+
+INSTRUCTIONS:
+1. Analyze the raw result data structure
+2. Extract meaningful information from the result
+3. Present the data in a clear, organized format
+4. Use appropriate language based on the user's request language
+5. Add context and explanations where helpful
+
+FORMATTING GUIDELINES:
+- Use Markdown formatting for better readability
+- Create tables for comparing multiple data points
+- Use emojis and formatting to make the response engaging
+- Structure information with headers (##, ###) for organization
+- Use bullet points and numbered lists for clarity
+- Add visual separators (---) between sections
+
+COMMON DATA PATTERNS:
+- JSON-RPC responses: Extract "result" field values
+- Block data: Present block number, hash, timestamp, transactions
+- Balance data: Show token amounts with proper formatting
+- Error responses: Explain the error in user-friendly terms
+
+LANGUAGE CONSISTENCY:
+- Respond in the SAME language as the user's request
+- If user asked in Chinese, respond in Chinese
+- If user asked in English, respond in English
+- Keep technical terms consistent with user's language
+
+RULES:
+- Always provide context about what the data means
+- Use clear, simple language that both technical and non-technical users can understand
+- Highlight important values with **bold** or backtick code blocks
+- For blockchain data, explain what it means in practical terms
+- If there are errors, explain what went wrong and suggest solutions
+
+Return ONLY the formatted response, no additional explanations.`,
+		userMessage,
+		toolName,
+		string(resultJSON))
+
+	// Call LLM for result formatting
+	chatMessages := []types.ChatMessage{
+		{Role: "user", Content: prompt},
+	}
+
+	response, err := m.llmClient.GetCompletion(ctx, chatMessages)
+	if err != nil {
+		return "", fmt.Errorf("LLM completion failed: %w", err)
+	}
+
+	return response, nil
 }
 
 // executeTasksInParallel executes tasks concurrently
@@ -1004,128 +1058,6 @@ func (m *LLMGraphManager) aggregateResults(results []types.TaskResult, strategy 
 		header := fmt.Sprintf("Results (%d/%d tasks successful):\n", successCount, len(results))
 		return header + strings.Join(summaryParts, "\n"), overallSuccess
 	}
-}
-
-// extractNodeURL extracts node URL from user message (as per requirements)
-func (m *LLMGraphManager) extractNodeURL(message string) string {
-	// Simple extraction logic for http URLs as specified in requirements
-	if strings.Contains(message, "http://") {
-		start := strings.Index(message, "http://")
-		end := start + 7 // "http://"
-		for end < len(message) && (message[end] != ' ' && message[end] != '?' && message[end] != ',' && message[end] != '.') {
-			end++
-		}
-		if end < len(message) && message[end] == ':' {
-			// Include port
-			end++
-			for end < len(message) && message[end] >= '0' && message[end] <= '9' {
-				end++
-			}
-		}
-		return message[start:end]
-	}
-	return "http://127.0.0.1:8545" // Default as per requirements
-}
-
-// extractOrder extracts order parameter from user message (as per requirements)
-func (m *LLMGraphManager) extractOrder(message string) int {
-	// Look for "order=NUMBER" as specified in requirements
-	if idx := strings.Index(message, "order="); idx != -1 {
-		start := idx + 6
-		end := start
-		for end < len(message) && message[end] >= '0' && message[end] <= '9' {
-			end++
-		}
-		if end > start {
-			var order int
-			fmt.Sscanf(message[start:end], "%d", &order)
-			return order
-		}
-	}
-	return 10000 // Default as per requirements
-}
-
-// extractAddress extracts wallet/contract address from user message
-func (m *LLMGraphManager) extractAddress(message string) string {
-	// Look for 0x prefixed addresses
-	if idx := strings.Index(message, "0x"); idx != -1 {
-		start := idx
-		end := start + 2
-		for end < len(message) && ((message[end] >= '0' && message[end] <= '9') ||
-			(message[end] >= 'a' && message[end] <= 'f') ||
-			(message[end] >= 'A' && message[end] <= 'F')) {
-			end++
-		}
-		if end > start+2 {
-			return message[start:end]
-		}
-	}
-	return ""
-}
-
-// extractToken extracts token symbol from user message
-func (m *LLMGraphManager) extractToken(message string) string {
-	message = strings.ToLower(message)
-	tokens := []string{"meer", "usdt", "btc", "eth", "qng"}
-	for _, token := range tokens {
-		if strings.Contains(message, token) {
-			return strings.ToUpper(token)
-		}
-	}
-	return "MEER" // Default token
-}
-
-// extractBlockID extracts block height or hash from user message
-func (m *LLMGraphManager) extractBlockID(message string) string {
-	// Look for "block" followed by number or hash
-	if strings.Contains(message, "block") {
-		words := strings.Fields(message)
-		for i, word := range words {
-			if strings.Contains(word, "block") && i+1 < len(words) {
-				next := words[i+1]
-				// Check if it's a number (block height) or hash
-				if len(next) > 0 && (next[0] >= '0' && next[0] <= '9') {
-					return next
-				}
-				if strings.HasPrefix(next, "0x") {
-					return next
-				}
-			}
-		}
-	}
-	return "latest"
-}
-
-// extractTxHash extracts transaction hash from user message
-func (m *LLMGraphManager) extractTxHash(message string) string {
-	// Look for transaction hash patterns
-	if strings.Contains(message, "tx") || strings.Contains(message, "transaction") {
-		if idx := strings.Index(message, "0x"); idx != -1 {
-			start := idx
-			end := start + 2
-			for end < len(message) && ((message[end] >= '0' && message[end] <= '9') ||
-				(message[end] >= 'a' && message[end] <= 'f') ||
-				(message[end] >= 'A' && message[end] <= 'F')) {
-				end++
-			}
-			if end > start+2 && end-start >= 10 { // At least reasonable hash length
-				return message[start:end]
-			}
-		}
-	}
-	return ""
-}
-
-// extractSymbol extracts token symbol for price queries
-func (m *LLMGraphManager) extractSymbol(message string) string {
-	message = strings.ToLower(message)
-	symbols := []string{"meer", "btc", "eth", "usdt", "usdc", "qng"}
-	for _, symbol := range symbols {
-		if strings.Contains(message, symbol) {
-			return strings.ToUpper(symbol)
-		}
-	}
-	return "MEER" // Default symbol
 }
 
 // web3WorkflowExecutionNode executes Web3 workflows as per requirements
@@ -1509,9 +1441,7 @@ func (m *LLMGraphManager) getAvailableMCPTools() string {
 	for _, server := range m.config.MCP.DefaultServers {
 		if server.Enabled {
 			tools := m.getMCPServerTools(server.Name)
-			for _, tool := range tools {
-				toolDescriptions = append(toolDescriptions, tool)
-			}
+			toolDescriptions = append(toolDescriptions, tools...)
 		}
 	}
 
@@ -1538,10 +1468,12 @@ func (m *LLMGraphManager) getMCPServerTools(serverName string) []string {
 			return m.formatToolsFromServer(tools)
 		}
 
-		log.Printf("Failed to get tools from server %s: %v, using fallback", serverName, err)
+		log.Printf("Failed to get tools from server %s: %v", serverName, err)
 	}
-	// Fallback to hardcoded tools if server is not accessible
-	return m.getFallbackTools(serverName)
+
+	// Return empty if server is not accessible - no hardcoded fallback
+	log.Printf("No tools available for server %s", serverName)
+	return []string{}
 }
 
 // getServerURL gets the URL for a server name
@@ -1581,7 +1513,17 @@ func (m *LLMGraphManager) formatToolsFromServer(tools []map[string]interface{}) 
 
 		// Format parameters if available
 		var paramStr string
-		if params, ok := tool["parameters"].(map[string]interface{}); ok && len(params) > 0 {
+		// Check for inputSchema (MCP standard) or parameters field
+		var params map[string]interface{}
+		if inputSchema, ok := tool["inputSchema"].(map[string]interface{}); ok {
+			if properties, ok := inputSchema["properties"].(map[string]interface{}); ok {
+				params = properties
+			}
+		} else if paramMap, ok := tool["parameters"].(map[string]interface{}); ok {
+			params = paramMap
+		}
+
+		if len(params) > 0 {
 			var paramNames []string
 			for paramName := range params {
 				paramNames = append(paramNames, paramName)
@@ -1600,43 +1542,6 @@ func (m *LLMGraphManager) formatToolsFromServer(tools []map[string]interface{}) 
 	}
 
 	return descriptions
-}
-
-// getFallbackTools returns hardcoded tools when server is not accessible
-func (m *LLMGraphManager) getFallbackTools(serverName string) []string {
-	switch serverName {
-	case "QNG Tools":
-		return []string{
-			"  - stateroot: Query QNG node stateroot information (params: rpc, order)",
-			"  - balance: Check account balance (params: address, token)",
-			"  - node_status: Get QNG node status and health (params: rpc)",
-			"  - block_info: Get block information by height or hash (params: rpc, block_id)",
-			"  - transaction_info: Get transaction details (params: rpc, tx_hash)",
-		}
-	case "Metamask Tools":
-		return []string{
-			"  - wallet_connect: Connect to user's wallet",
-			"  - wallet_balance: Get wallet token balances",
-			"  - send_transaction: Send blockchain transaction (requires auth)",
-			"  - sign_message: Sign arbitrary message (requires auth)",
-		}
-	case "Market Data":
-		return []string{
-			"  - token_price: Get current token price (params: symbol)",
-			"  - market_cap: Get token market cap data (params: symbol)",
-			"  - price_history: Get historical price data (params: symbol, timeframe)",
-		}
-	default:
-		// Return generic tools based on server name patterns
-		if strings.Contains(strings.ToLower(serverName), "qng") {
-			return []string{
-				"  - " + strings.ToLower(serverName) + "_query: Generic QNG node query tool",
-			}
-		}
-		return []string{
-			"  - " + strings.ToLower(serverName) + "_tool: Generic tool from " + serverName,
-		}
-	}
 }
 
 // getAvailableWorkflows returns a formatted string of available Web3 workflows
