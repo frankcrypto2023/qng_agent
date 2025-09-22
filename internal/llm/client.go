@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"qng-agent/internal/types"
 	"strings"
@@ -244,7 +245,7 @@ func (m *Manager) GetClient() Client {
 // UpdateClientFromConfig updates the LLM client from configuration
 func (m *Manager) UpdateClientFromConfig(config types.LLMProviderConfig) {
 	var client Client
-	
+
 	switch config.Type {
 	case types.ProviderTypeOpenRouter:
 		client = NewOpenRouterClient(
@@ -294,7 +295,7 @@ func (m *Manager) UpdateClientFromConfig(config types.LLMProviderConfig) {
 			0.7,  // temperature
 		)
 	}
-	
+
 	m.SetDefaultClient(client)
 }
 
@@ -304,13 +305,13 @@ type DummyClient struct{}
 // StreamCompletion implements Client interface with dummy responses
 func (d *DummyClient) StreamCompletion(ctx context.Context, messages []types.ChatMessage, onChunk func(string), onComplete func()) error {
 	response := "Hello! I'm a QNG Intelligent Agent. Currently, no LLM provider is configured, so I'm running in demo mode. Please configure your LLM settings in the settings panel to enable full functionality."
-	
+
 	// Simulate streaming by sending chunks
 	for _, char := range response {
 		onChunk(string(char))
 		time.Sleep(50 * time.Millisecond) // Simulate typing speed
 	}
-	
+
 	onComplete()
 	return nil
 }
@@ -343,7 +344,7 @@ func (c *OpenRouterClient) StreamCompletion(ctx context.Context, messages []type
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
-
+	log.Printf("Request: %s %s", c.baseURL+"/chat/completions", string(jsonData))
 	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
@@ -351,7 +352,7 @@ func (c *OpenRouterClient) StreamCompletion(ctx context.Context, messages []type
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	
+
 	// Add OpenRouter specific headers
 	if c.appName != "" {
 		req.Header.Set("X-Title", c.appName)
@@ -421,7 +422,7 @@ func (c *OpenRouterClient) GetCompletion(ctx context.Context, messages []types.C
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
-
+	log.Printf("Request: %s %s", c.baseURL+"/chat/completions", string(jsonData))
 	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
@@ -429,7 +430,7 @@ func (c *OpenRouterClient) GetCompletion(ctx context.Context, messages []types.C
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	
+
 	// Add OpenRouter specific headers
 	if c.appName != "" {
 		req.Header.Set("X-Title", c.appName)
