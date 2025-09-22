@@ -22,11 +22,16 @@ export interface MCPServerConfig {
   enabled: boolean;
 }
 
+export type LLMProviderType = 'openai' | 'openrouter' | 'groq' | 'anthropic' | 'custom';
+
 export interface LLMProviderConfig {
+  type: LLMProviderType;
   name: string;
   url: string;
   token: string;
   model_name: string;
+  app_name?: string;    // For OpenRouter X-Title header
+  app_url?: string;     // For OpenRouter HTTP-Referer header
 }
 
 export interface AppSettings {

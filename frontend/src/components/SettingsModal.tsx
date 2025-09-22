@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { X, Plus, Trash2, Save } from 'lucide-react'
-import { AppSettings, MCPServerConfig, LLMProviderConfig } from '../types'
+import { AppSettings, MCPServerConfig, LLMProviderConfig, LLMProviderType } from '../types'
 import { apiClient } from '../api/client'
 import { cn } from '../utils'
 
@@ -13,10 +13,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [settings, setSettings] = useState<AppSettings>({
     mcp_servers: [],
     llm_provider: {
+      type: 'openai',
       name: '',
       url: '',
       token: '',
-      model_name: ''
+      model_name: '',
+      app_name: '',
+      app_url: ''
     }
   })
   const [isLoading, setIsLoading] = useState(false)
@@ -88,6 +91,45 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }))
   }
 
+  // Provider type options
+  const providerTypes: { value: LLMProviderType; label: string; description: string; defaultUrl: string }[] = [
+    {
+      value: 'openai',
+      label: 'OpenAI',
+      description: 'OpenAI API or compatible services',
+      defaultUrl: 'https://api.openai.com/v1'
+    },
+    {
+      value: 'openrouter',
+      label: 'OpenRouter',
+      description: 'Access to multiple AI models through OpenRouter',
+      defaultUrl: 'https://openrouter.ai/api/v1'
+    },
+    {
+      value: 'groq',
+      label: 'Groq',
+      description: 'Fast inference with Groq API',
+      defaultUrl: 'https://api.groq.com/openai/v1'
+    },
+    {
+      value: 'anthropic',
+      label: 'Anthropic',
+      description: 'Anthropic Claude API',
+      defaultUrl: 'https://api.anthropic.com/v1'
+    },
+    {
+      value: 'custom',
+      label: 'Custom',
+      description: 'Custom OpenAI-compatible API endpoint',
+      defaultUrl: ''
+    }
+  ]
+
+  const getDefaultUrl = (type: LLMProviderType) => {
+    const provider = providerTypes.find(p => p.value === type)
+    return provider?.defaultUrl || ''
+  }
+
   if (!isOpen) return null
 
   return (
@@ -116,6 +158,30 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <section>
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">LLM Provider Configuration</h3>
                 <div className="bg-gray-50 rounded-lg p-4 space-y-4">
+                  {/* Provider Type Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Provider Type
+                    </label>
+                    <select
+                      value={settings.llm_provider.type}
+                      onChange={(e) => {
+                        const newType = e.target.value as LLMProviderType
+                        updateLLMProvider({ 
+                          type: newType,
+                          url: getDefaultUrl(newType)
+                        })
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blockchain-primary focus:border-transparent"
+                    >
+                      {providerTypes.map((provider) => (
+                        <option key={provider.value} value={provider.value}>
+                          {provider.label} - {provider.description}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -125,7 +191,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         type="text"
                         value={settings.llm_provider.name}
                         onChange={(e) => updateLLMProvider({ name: e.target.value })}
-                        placeholder="e.g., OpenAI, Anthropic"
+                        placeholder="e.g., OpenAI, Anthropic, OpenRouter"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blockchain-primary focus:border-transparent"
                       />
                     </div>
@@ -137,11 +203,18 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         type="text"
                         value={settings.llm_provider.model_name}
                         onChange={(e) => updateLLMProvider({ model_name: e.target.value })}
-                        placeholder="e.g., gpt-4, claude-3-opus"
+                        placeholder={
+                          settings.llm_provider.type === 'openrouter' 
+                            ? 'e.g., openai/gpt-4o, anthropic/claude-3-opus' 
+                            : settings.llm_provider.type === 'groq'
+                            ? 'e.g., llama-3.1-70b-versatile, mixtral-8x7b-32768'
+                            : 'e.g., gpt-4, claude-3-opus'
+                        }
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blockchain-primary focus:border-transparent"
                       />
                     </div>
                   </div>
+                  
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       API URL
@@ -150,10 +223,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       type="url"
                       value={settings.llm_provider.url}
                       onChange={(e) => updateLLMProvider({ url: e.target.value })}
-                      placeholder="https://api.openai.com/v1"
+                      placeholder={getDefaultUrl(settings.llm_provider.type)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blockchain-primary focus:border-transparent"
                     />
                   </div>
+                  
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       API Token
@@ -166,6 +240,41 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blockchain-primary focus:border-transparent"
                     />
                   </div>
+
+                  {/* OpenRouter specific fields */}
+                  {settings.llm_provider.type === 'openrouter' && (
+                    <div className="border-t pt-4 space-y-4">
+                      <div className="text-sm text-gray-600">
+                        <strong>OpenRouter Configuration:</strong> These fields are optional but help with app attribution on OpenRouter leaderboards.
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            App Name (Optional)
+                          </label>
+                          <input
+                            type="text"
+                            value={settings.llm_provider.app_name || ''}
+                            onChange={(e) => updateLLMProvider({ app_name: e.target.value })}
+                            placeholder="QNG Agent"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blockchain-primary focus:border-transparent"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            App URL (Optional)
+                          </label>
+                          <input
+                            type="url"
+                            value={settings.llm_provider.app_url || ''}
+                            onChange={(e) => updateLLMProvider({ app_url: e.target.value })}
+                            placeholder="https://your-app.com"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blockchain-primary focus:border-transparent"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </section>
 

@@ -9,3 +9,4 @@ server.log
 test_files
 *.log
 *.txt
+frontend/dist

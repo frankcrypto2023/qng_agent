@@ -29,12 +29,27 @@ type MCPServerConfig struct {
 	Enabled bool   `json:"enabled"`
 }
 
+// LLMProviderType represents the type of LLM provider
+type LLMProviderType string
+
+const (
+	ProviderTypeOpenAI    LLMProviderType = "openai"
+	ProviderTypeOpenRouter LLMProviderType = "openrouter"
+	ProviderTypeGroq      LLMProviderType = "groq"
+	ProviderTypeAnthropic LLMProviderType = "anthropic"
+	ProviderTypeCustom    LLMProviderType = "custom"
+)
+
 // LLMProviderConfig represents LLM provider configuration
 type LLMProviderConfig struct {
-	Name      string `json:"name"`
-	URL       string `json:"url"`
-	Token     string `json:"token"`
-	ModelName string `json:"model_name"`
+	Type      LLMProviderType `json:"type"`
+	Name      string          `json:"name"`
+	URL       string          `json:"url"`
+	Token     string          `json:"token"`
+	ModelName string          `json:"model_name"`
+	// OpenRouter specific fields
+	AppName    string `json:"app_name,omitempty"`    // For X-Title header
+	AppURL     string `json:"app_url,omitempty"`     // For HTTP-Referer header
 }
 
 // AppSettings represents application settings
