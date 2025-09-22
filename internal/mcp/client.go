@@ -20,19 +20,19 @@ import (
 
 // Client represents an MCP client for communicating with MCP servers
 type Client struct {
-	httpClient    *http.Client
-	servers       map[string]string // serverName -> URL mapping
-	sessions      map[string]string // serverURL -> sessionID mapping for reuse
+	httpClient     *http.Client
+	servers        map[string]string         // serverName -> URL mapping
+	sessions       map[string]string         // serverURL -> sessionID mapping for reuse
 	sseConnections map[string]*http.Response // sessionID -> active SSE connection (changed from serverURL)
-	mutex         sync.RWMutex // Protect concurrent access to sessions and connections
-	requestCounter int64        // Counter for unique request IDs
+	mutex          sync.RWMutex              // Protect concurrent access to sessions and connections
+	requestCounter int64                     // Counter for unique request IDs
 }
 
 // NewClient creates a new MCP client
 func NewClient() *Client {
 	return &Client{
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 60 * time.Second,
 		},
 		servers:        make(map[string]string),
 		sessions:       make(map[string]string),
@@ -174,7 +174,7 @@ func (c *Client) readSSEToolCallResponse(sessionID, expectedID string) (map[stri
 	c.mutex.RLock()
 	sseConn, exists := c.sseConnections[sessionID]
 	c.mutex.RUnlock()
-	
+
 	if !exists || sseConn == nil {
 		return nil, fmt.Errorf("no active SSE connection found for session: %s", sessionID)
 	}
@@ -189,19 +189,19 @@ func (c *Client) readSSEToolCallResponse(sessionID, expectedID string) (map[stri
 	go func() {
 		defer close(done)
 		defer close(errChan)
-		
+
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
-			
+
 			// Parse SSE format: "data: {...}"
 			if strings.HasPrefix(line, "data: ") {
 				data := strings.TrimPrefix(line, "data: ")
-				
+
 				// Skip heartbeat and empty data
 				if data == "" || data == "heartbeat" {
 					continue
 				}
-				
+
 				// Try to parse as JSON-RPC response
 				var jsonRpcResponse map[string]interface{}
 				if err := json.Unmarshal([]byte(data), &jsonRpcResponse); err == nil {
@@ -212,14 +212,14 @@ func (c *Client) readSSEToolCallResponse(sessionID, expectedID string) (map[stri
 					} else if id, ok := jsonRpcResponse["id"].(float64); ok {
 						responseID = fmt.Sprintf("%.0f", id)
 					}
-					
+
 					if responseID == expectedID {
 						// Check for error
 						if errorField, ok := jsonRpcResponse["error"]; ok {
 							errChan <- fmt.Errorf("MCP error: %v", errorField)
 							return
 						}
-						
+
 						// Extract result
 						if result, ok := jsonRpcResponse["result"]; ok {
 							log.Printf("MCP raw result: %v (type: %T)", result, result)
@@ -229,7 +229,7 @@ func (c *Client) readSSEToolCallResponse(sessionID, expectedID string) (map[stri
 							done <- resultMap
 							return
 						}
-						
+
 						// Empty result
 						done <- map[string]interface{}{}
 						return
@@ -237,7 +237,7 @@ func (c *Client) readSSEToolCallResponse(sessionID, expectedID string) (map[stri
 				}
 			}
 		}
-		
+
 		if err := scanner.Err(); err != nil {
 			errChan <- fmt.Errorf("error reading SSE stream: %w", err)
 		}
@@ -256,12 +256,12 @@ func (c *Client) readSSEToolCallResponse(sessionID, expectedID string) (map[stri
 // convertMCPResult converts MCP result to our expected format
 func (c *Client) convertMCPResult(result interface{}) map[string]interface{} {
 	resultMap := make(map[string]interface{})
-	
+
 	// If result is already a map, use it directly
 	if resultMap, ok := result.(map[string]interface{}); ok {
 		return resultMap
 	}
-	
+
 	// If result is not a map, wrap it
 	resultMap["data"] = result
 	return resultMap
@@ -271,10 +271,10 @@ func (c *Client) convertMCPResult(result interface{}) map[string]interface{} {
 func (c *Client) findServerForTool(toolName string) (string, error) {
 	// Map tools to servers based on tool naming patterns
 	switch {
-	case toolName == "get_block_stateroot" || toolName == "get_block_by_order" || toolName == "get_block_count" || 
-		 strings.HasPrefix(toolName, "get_") || strings.HasPrefix(toolName, "banlist") || 
-		 strings.HasPrefix(toolName, "estimate_") || strings.HasPrefix(toolName, "tips") ||
-		 strings.HasPrefix(toolName, "is_"):
+	case toolName == "get_block_stateroot" || toolName == "get_block_by_order" || toolName == "get_block_count" ||
+		strings.HasPrefix(toolName, "get_") || strings.HasPrefix(toolName, "banlist") ||
+		strings.HasPrefix(toolName, "estimate_") || strings.HasPrefix(toolName, "tips") ||
+		strings.HasPrefix(toolName, "is_"):
 		if url, ok := c.servers["QNG Tools"]; ok {
 			return url, nil
 		}
@@ -342,7 +342,7 @@ func (c *Client) initMCPSessionSafe(ctx context.Context, sseURL string) (string,
 	c.mutex.Unlock()
 	sessionID, messageEndpoint, err := c.initMCPSession(ctx, sseURL)
 	c.mutex.Lock()
-	
+
 	return sessionID, messageEndpoint, err
 }
 
@@ -398,10 +398,10 @@ func (c *Client) initMCPSession(ctx context.Context, sseURL string) (string, str
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
 			log.Printf("SSE received: %s", line)
-			
+
 			if strings.HasPrefix(line, "data: ") {
 				data := strings.TrimPrefix(line, "data: ")
-				
+
 				// Look for message endpoint URL
 				if strings.Contains(data, "/message?sessionId=") {
 					messageEndpoint = data
@@ -424,7 +424,7 @@ func (c *Client) initMCPSession(ctx context.Context, sseURL string) (string, str
 		if sessionID != "" && messageEndpoint != "" {
 			// Cache the session and KEEP the SSE connection alive under sessionID
 			c.sessions[sseURL] = sessionID
-			c.sseConnections[sessionID] = resp  // Store by sessionID instead of sseURL
+			c.sseConnections[sessionID] = resp // Store by sessionID instead of sseURL
 			log.Printf("Established active SSE connection for session: %s", sessionID)
 			return sessionID, messageEndpoint, nil
 		}
@@ -685,4 +685,3 @@ func (c *Client) getDefaultTools(serverURL string) []map[string]interface{} {
 		},
 	}
 }
-
