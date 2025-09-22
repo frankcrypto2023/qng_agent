@@ -52,6 +52,7 @@ func (m *LLMGraphManager) ProcessUserMessage(ctx context.Context, userID, userMe
 	// Update LLM client and MCP client with user-specific configuration if available
 	if userID != "" {
 		if settings, err := m.getUserSettings(userID); err == nil {
+			fmt.Printf("Updated LLM configuration for user %s: %+v", userID, settings.LLMProvider)
 			// Update LLM configuration if available
 			if settings.LLMProvider.URL != "" && settings.LLMProvider.Token != "" {
 				// Update LLM manager with user's configuration

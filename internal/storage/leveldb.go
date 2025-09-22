@@ -71,7 +71,7 @@ func NewLevelDBStorage(dbPath string) (*LevelDBStorage, error) {
 // CreateSession creates a new chat session
 func (s *LevelDBStorage) CreateSession(userID string, session *types.ChatSession) error {
 	sessionKey := userSessionKey(userID, session.ID)
-	
+
 	data, err := json.Marshal(session)
 	if err != nil {
 		return fmt.Errorf("failed to marshal session: %w", err)
@@ -94,7 +94,7 @@ func (s *LevelDBStorage) CreateSession(userID string, session *types.ChatSession
 // GetSession retrieves a chat session with its messages
 func (s *LevelDBStorage) GetSession(userID, sessionID string) (*types.ChatSession, error) {
 	sessionKey := userSessionKey(userID, sessionID)
-	
+
 	data, err := s.db.Get([]byte(sessionKey), nil)
 	if err != nil {
 		if err == leveldb.ErrNotFound {
@@ -113,7 +113,7 @@ func (s *LevelDBStorage) GetSession(userID, sessionID string) (*types.ChatSessio
 	if err != nil {
 		return nil, fmt.Errorf("failed to get messages: %w", err)
 	}
-	
+
 	session.Messages = messages
 	return &session, nil
 }
@@ -121,7 +121,7 @@ func (s *LevelDBStorage) GetSession(userID, sessionID string) (*types.ChatSessio
 // GetSessions retrieves all chat sessions for a user
 func (s *LevelDBStorage) GetSessions(userID string) ([]types.ChatSession, error) {
 	var sessions []types.ChatSession
-	
+
 	// Use index to get sessions ordered by update time (newest first)
 	iter := s.db.NewIterator(util.BytesPrefix([]byte(userSessionIndexPrefix(userID))), nil)
 	defer iter.Release()
@@ -140,13 +140,13 @@ func (s *LevelDBStorage) GetSessions(userID string) ([]types.ChatSession, error)
 	// Reverse the slice to get newest first
 	for i := len(sessionIDs) - 1; i >= 0; i-- {
 		sessionID := sessionIDs[i]
-		
+
 		session, err := s.GetSession(userID, sessionID)
 		if err != nil {
 			// Skip sessions that can't be loaded
 			continue
 		}
-		
+
 		sessions = append(sessions, *session)
 	}
 
@@ -219,7 +219,7 @@ func (s *LevelDBStorage) DeleteSession(userID, sessionID string) error {
 func (s *LevelDBStorage) CreateMessage(userID string, message *types.ChatMessage) error {
 	// Use timestamp in key for ordering
 	messageKey := userMessageKey(userID, message.SessionID, message.Timestamp.Format(time.RFC3339Nano), message.ID)
-	
+
 	data, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
@@ -294,10 +294,11 @@ func (s *LevelDBStorage) SaveSettings(userID string, settings *types.AppSettings
 // LoadSettings loads application settings for a user
 func (s *LevelDBStorage) LoadSettings(userID string) (*types.AppSettings, error) {
 	settingsKey := userSettingsKey(userID)
-	
+
 	data, err := s.db.Get([]byte(settingsKey), nil)
 	if err != nil {
 		if err == leveldb.ErrNotFound {
+			fmt.Printf("Settings not found for user %s, returning default settings", userID)
 			// Return default settings
 			return &types.AppSettings{
 				MCPServers: []types.MCPServerConfig{},
@@ -323,7 +324,7 @@ func (s *LevelDBStorage) LoadSettings(userID string) (*types.AppSettings, error)
 // GetStats returns database statistics
 func (s *LevelDBStorage) GetStats() (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
-	
+
 	// Count sessions
 	sessionCount := 0
 	sessionIter := s.db.NewIterator(util.BytesPrefix([]byte(SessionPrefix)), nil)
@@ -331,7 +332,7 @@ func (s *LevelDBStorage) GetStats() (map[string]interface{}, error) {
 		sessionCount++
 	}
 	sessionIter.Release()
-	
+
 	// Count messages
 	messageCount := 0
 	messageIter := s.db.NewIterator(util.BytesPrefix([]byte(MessagePrefix)), nil)
@@ -343,7 +344,7 @@ func (s *LevelDBStorage) GetStats() (map[string]interface{}, error) {
 	stats["sessions"] = sessionCount
 	stats["messages"] = messageCount
 	stats["database_type"] = "LevelDB"
-	
+
 	return stats, nil
 }
 
