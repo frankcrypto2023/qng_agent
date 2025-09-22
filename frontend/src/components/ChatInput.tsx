@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Send, Loader2 } from 'lucide-react'
+import { Send, Loader2, Github } from 'lucide-react'
 import { cn } from '../utils'
 
 interface ChatInputProps {
@@ -80,6 +80,18 @@ export function ChatInput({ onSendMessage, disabled = false, isLoading = false }
       
       <div className="mt-2 text-xs text-gray-500 text-center">
         QNG Agent can help with blockchain queries, Web3 operations, and smart contract interactions
+      </div>
+      
+      <div className="mt-3 flex justify-center">
+        <a
+          href="https://github.com/frankcrypto2023/qng_agent"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+        >
+          <Github className="w-4 h-4" />
+          View on GitHub
+        </a>
       </div>
     </div>
   )
