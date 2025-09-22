@@ -73,20 +73,20 @@ func (m *LLMGraphManager) ProcessUserMessage(ctx context.Context, userID, userMe
 	}
 
 	// Create a new message graph using official QNG graph library
-	messageGraph := graph.NewMessageGraph()
+	messageGraph := graph.NewGraph[map[string]interface{}, map[string]interface{}]()
 
 	// Add nodes to the graph
-	messageGraph.AddNode("intent_analysis", m.intentAnalysisNode)
-	messageGraph.AddNode("mcp_tool_execution", m.mcpToolExecutionNode)
-	messageGraph.AddNode("sub_workflow_execution", m.subWorkflowExecutionNode) // New node for sub-workflows
-	messageGraph.AddNode("web3_workflow_execution", m.web3WorkflowExecutionNode)
-	messageGraph.AddNode("response_generation", m.responseGenerationNode)
+	messageGraph.AddNode("intent_analysis", m.wrapIntentAnalysisNode)
+	messageGraph.AddNode("mcp_tool_execution", m.wrapMcpToolExecutionNode)
+	messageGraph.AddNode("sub_workflow_execution", m.wrapSubWorkflowExecutionNode) // New node for sub-workflows
+	messageGraph.AddNode("web3_workflow_execution", m.wrapWeb3WorkflowExecutionNode)
+	messageGraph.AddNode("response_generation", m.wrapResponseGenerationNode)
 
 	// Set entry point
 	messageGraph.SetEntryPoint("intent_analysis")
 
 	// Add conditional edges based on intent
-	messageGraph.AddConditionalEdge("intent_analysis", m.routeAfterIntent)
+	messageGraph.AddConditionalEdge("intent_analysis", m.wrapRouteAfterIntent)
 
 	// Add direct edges from execution nodes to response generation
 	messageGraph.AddEdge("mcp_tool_execution", "response_generation")
@@ -135,7 +135,10 @@ func (m *LLMGraphManager) ProcessUserMessage(ctx context.Context, userID, userMe
 	}
 
 	// Execute the graph
-	result, err := runnable.Invoke(ctx, initialMessages)
+	state := graph.State{
+		"messages": initialMessages,
+	}
+	result, err := runnable.Invoke(ctx, state)
 	if err != nil {
 		return "", false, fmt.Errorf("graph execution failed: %w", err)
 	}
@@ -144,7 +147,12 @@ func (m *LLMGraphManager) ProcessUserMessage(ctx context.Context, userID, userMe
 	finalResponse := ""
 	needsAuth := false
 
-	for _, msg := range result {
+	resultMessages, ok := result["messages"].([]llms.MessageContent)
+	if !ok {
+		return "", false, fmt.Errorf("invalid result: messages not found or wrong type")
+	}
+
+	for _, msg := range resultMessages {
 		for _, part := range msg.Parts {
 			if textPart, ok := part.(llms.TextContent); ok {
 				content := textPart.Text
@@ -166,7 +174,7 @@ func (m *LLMGraphManager) ProcessUserMessage(ctx context.Context, userID, userMe
 }
 
 // intentAnalysisNode analyzes user intent using LLM and generates sub-workflows for multi-task requests
-func (m *LLMGraphManager) intentAnalysisNode(ctx context.Context, state []llms.MessageContent, options graph.Options) ([]llms.MessageContent, error) {
+func (m *LLMGraphManager) intentAnalysisNode(ctx context.Context, state []llms.MessageContent, options graph.Option) ([]llms.MessageContent, error) {
 	// Extract user message from state
 	userMessage := ""
 	for _, msg := range state {
@@ -424,7 +432,7 @@ Return ONLY a JSON object with the complete sub-workflow structure:
 }
 
 // mcpToolExecutionNode executes MCP tools via real MCP server calls
-func (m *LLMGraphManager) mcpToolExecutionNode(ctx context.Context, state []llms.MessageContent, options graph.Options) ([]llms.MessageContent, error) {
+func (m *LLMGraphManager) mcpToolExecutionNode(ctx context.Context, state []llms.MessageContent, options graph.Option) ([]llms.MessageContent, error) {
 	// Extract intent result from state
 	var intentResult types.IntentAnalysisResult
 
@@ -516,7 +524,7 @@ func (m *LLMGraphManager) mcpToolExecutionNode(ctx context.Context, state []llms
 }
 
 // subWorkflowExecutionNode executes sub-workflows for multi-task requests
-func (m *LLMGraphManager) subWorkflowExecutionNode(ctx context.Context, state []llms.MessageContent, options graph.Options) ([]llms.MessageContent, error) {
+func (m *LLMGraphManager) subWorkflowExecutionNode(ctx context.Context, state []llms.MessageContent, options graph.Option) ([]llms.MessageContent, error) {
 	// Extract intent result from state
 	var intentResult types.IntentAnalysisResult
 
@@ -1266,7 +1274,7 @@ func (m *LLMGraphManager) aggregateResults(results []types.TaskResult, strategy 
 }
 
 // web3WorkflowExecutionNode executes Web3 workflows as per requirements
-func (m *LLMGraphManager) web3WorkflowExecutionNode(ctx context.Context, state []llms.MessageContent, options graph.Options) ([]llms.MessageContent, error) {
+func (m *LLMGraphManager) web3WorkflowExecutionNode(ctx context.Context, state []llms.MessageContent, options graph.Option) ([]llms.MessageContent, error) {
 	// Extract intent result from state
 	var intentResult types.IntentAnalysisResult
 
@@ -1351,7 +1359,7 @@ func (m *LLMGraphManager) getWorkflowConfig(name string) *types.WorkflowConfig {
 }
 
 // responseGenerationNode generates natural language response
-func (m *LLMGraphManager) responseGenerationNode(ctx context.Context, state []llms.MessageContent, options graph.Options) ([]llms.MessageContent, error) {
+func (m *LLMGraphManager) responseGenerationNode(ctx context.Context, state []llms.MessageContent, options graph.Option) ([]llms.MessageContent, error) {
 	// Extract data from state
 	var userMessage string
 	var intentResult types.IntentAnalysisResult
@@ -1498,7 +1506,7 @@ For blockchain data presentation:
 }
 
 // routeAfterIntent determines the next node after intent analysis
-func (m *LLMGraphManager) routeAfterIntent(ctx context.Context, state []llms.MessageContent, options graph.Options) string {
+func (m *LLMGraphManager) routeAfterIntent(ctx context.Context, state []llms.MessageContent, options graph.Option) string {
 	// Extract intent result from state
 	var intentResult types.IntentAnalysisResult
 
@@ -1776,4 +1784,113 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// Wrapper functions to adapt to new graph API
+func (m *LLMGraphManager) wrapIntentAnalysisNode(ctx context.Context, name string, state graph.State) (graph.State, error) {
+	// Convert state to []llms.MessageContent
+	messages, ok := state["messages"].([]llms.MessageContent)
+	if !ok {
+		return nil, fmt.Errorf("invalid state: messages not found or wrong type")
+	}
+
+	// Call original function
+	result, err := m.intentAnalysisNode(ctx, messages, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert result back to state
+	newState := make(graph.State)
+	for k, v := range state {
+		newState[k] = v
+	}
+	newState["messages"] = result
+	return newState, nil
+}
+
+func (m *LLMGraphManager) wrapMcpToolExecutionNode(ctx context.Context, name string, state graph.State) (graph.State, error) {
+	messages, ok := state["messages"].([]llms.MessageContent)
+	if !ok {
+		return nil, fmt.Errorf("invalid state: messages not found or wrong type")
+	}
+
+	result, err := m.mcpToolExecutionNode(ctx, messages, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	newState := make(graph.State)
+	for k, v := range state {
+		newState[k] = v
+	}
+	newState["messages"] = result
+	return newState, nil
+}
+
+func (m *LLMGraphManager) wrapSubWorkflowExecutionNode(ctx context.Context, name string, state graph.State) (graph.State, error) {
+	messages, ok := state["messages"].([]llms.MessageContent)
+	if !ok {
+		return nil, fmt.Errorf("invalid state: messages not found or wrong type")
+	}
+
+	result, err := m.subWorkflowExecutionNode(ctx, messages, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	newState := make(graph.State)
+	for k, v := range state {
+		newState[k] = v
+	}
+	newState["messages"] = result
+	return newState, nil
+}
+
+func (m *LLMGraphManager) wrapWeb3WorkflowExecutionNode(ctx context.Context, name string, state graph.State) (graph.State, error) {
+	messages, ok := state["messages"].([]llms.MessageContent)
+	if !ok {
+		return nil, fmt.Errorf("invalid state: messages not found or wrong type")
+	}
+
+	result, err := m.web3WorkflowExecutionNode(ctx, messages, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	newState := make(graph.State)
+	for k, v := range state {
+		newState[k] = v
+	}
+	newState["messages"] = result
+	return newState, nil
+}
+
+func (m *LLMGraphManager) wrapResponseGenerationNode(ctx context.Context, name string, state graph.State) (graph.State, error) {
+	messages, ok := state["messages"].([]llms.MessageContent)
+	if !ok {
+		return nil, fmt.Errorf("invalid state: messages not found or wrong type")
+	}
+
+	result, err := m.responseGenerationNode(ctx, messages, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	newState := make(graph.State)
+	for k, v := range state {
+		newState[k] = v
+	}
+	newState["messages"] = result
+	return newState, nil
+}
+
+func (m *LLMGraphManager) wrapRouteAfterIntent(ctx context.Context, name string, state graph.State) string {
+	messages, ok := state["messages"].([]llms.MessageContent)
+	if !ok {
+		// Default to response generation if state is invalid
+		return "response_generation"
+	}
+
+	return m.routeAfterIntent(ctx, messages, nil)
 }
