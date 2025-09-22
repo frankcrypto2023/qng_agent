@@ -3,7 +3,7 @@
 ## 📋 系统概览
 
 QNG智能体是一个基于LLM驱动的区块链操作系统，支持多RPC节点查询、智能工作流编排和动态参数解析。
-![image](./2025-9-16/workflow.png)
+
 ```mermaid
 flowchart TD
     %% 用户界面层
