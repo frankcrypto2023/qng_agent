@@ -23,3 +23,24 @@ export function formatTimestamp(date: Date): string {
 export function generateId(): string {
   return Math.random().toString(36).substring(2) + Date.now().toString(36)
 }
+
+/**
+ * Filters out GPT-OSS Harmony format metadata from message content
+ * Removes content between <|channel|> and <|end|> markers
+ * @param content The raw message content
+ * @returns Filtered content without metadata
+ */
+export function filterHarmonyMetadata(content: string): string {
+  // Pattern to match <|channel|>...<|end|> blocks
+  const harmonyPattern = /<\|channel\|>.*?<\|end\|>/gs
+  
+  // Remove all harmony metadata blocks
+  let filtered = content.replace(harmonyPattern, '')
+  
+  // Clean up any extra whitespace that might be left
+  // Replace multiple consecutive newlines with single newline
+  filtered = filtered.replace(/\n\s*\n\s*\n/g, '\n\n')
+  filtered = filtered.trim()
+  
+  return filtered
+}

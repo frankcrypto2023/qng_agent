@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { ChatMessage as ChatMessageType } from '../types'
-import { formatTimestamp, cn } from '../utils'
+import { formatTimestamp, cn, filterHarmonyMetadata } from '../utils'
 
 interface ChatMessageProps {
   message: ChatMessageType
@@ -12,6 +12,9 @@ interface ChatMessageProps {
 
 export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) {
   const isUser = message.role === 'user'
+  
+  // Filter out GPT-OSS Harmony metadata for assistant messages
+  const displayContent = isUser ? message.content : filterHarmonyMetadata(message.content)
 
   return (
     <div className={cn(
@@ -52,7 +55,7 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
           {isUser ? (
             // User messages: simple text display
             <div className="whitespace-pre-wrap break-words">
-              {message.content}
+              {displayContent}
             </div>
           ) : (
             // Assistant messages: Markdown or streaming text
@@ -62,7 +65,7 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
                 "whitespace-pre-wrap break-words text-gray-700 leading-relaxed",
                 "after:content-['▊'] after:animate-pulse after:ml-1"
               )}>
-                {message.content}
+                {displayContent}
               </div>
             ) : (
               // Static message: render with Markdown
@@ -109,7 +112,7 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
                   em: ({children}) => <em className="italic text-gray-700">{children}</em>,
                 }}
               >
-                {message.content}
+                {displayContent}
               </ReactMarkdown>
             )
           )}

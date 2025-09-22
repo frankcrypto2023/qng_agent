@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { MessageSquare, Plus, Settings, Trash2, Edit2, Check, X } from 'lucide-react'
 import { ChatSession } from '../types'
 import { apiClient } from '../api/client'
-import { formatTimestamp, cn } from '../utils'
+import { formatTimestamp, cn, filterHarmonyMetadata } from '../utils'
 
 interface SidebarProps {
   sessions: ChatSession[]
@@ -166,7 +166,7 @@ export function Sidebar({
                   </p>
                   {session.messages && session.messages.length > 0 && (
                     <p className="text-sm text-gray-400 mt-1 truncate">
-                      {session.messages[session.messages.length - 1].content}
+                      {filterHarmonyMetadata(session.messages[session.messages.length - 1].content)}
                     </p>
                   )}
                 </div>
