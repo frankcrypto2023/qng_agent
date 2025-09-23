@@ -40,5 +40,8 @@
         "enabled": false
       }
     ]
+  },
+  "log": {
+    "level": "info"
   }
 }

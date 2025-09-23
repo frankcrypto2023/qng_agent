@@ -11,6 +11,7 @@ type Config struct {
 	Database DatabaseConfig `json:"database"`
 	LLM      LLMConfig      `json:"llm"`
 	MCP      MCPConfig      `json:"mcp"`
+	Log      LogConfig      `json:"log"`
 }
 
 // ServerConfig contains HTTP server configuration
@@ -41,6 +42,7 @@ type LLMConfig struct {
 // MCPConfig contains MCP server configuration
 type MCPConfig struct {
 	DefaultServers []MCPServerConfig `json:"default_servers"`
+	Timeout        int               `json:"timeout"` // Request timeout in seconds
 }
 
 // MCPServerConfig represents an MCP server configuration
@@ -48,6 +50,11 @@ type MCPServerConfig struct {
 	Name    string `json:"name"`
 	URL     string `json:"url"`
 	Enabled bool   `json:"enabled"`
+}
+
+// LogConfig contains logging configuration
+type LogConfig struct {
+	Level string `json:"level"` // Log level: trace, debug, info, warn, error, crit
 }
 
 // Load loads configuration from file or environment variables
@@ -80,6 +87,10 @@ func Load() (*Config, error) {
 					Enabled: true,
 				},
 			},
+			Timeout: 300, // 5 minutes default timeout
+		},
+		Log: LogConfig{
+			Level: getEnv("LOG_LEVEL", "info"), // Default to info level
 		},
 	}
 

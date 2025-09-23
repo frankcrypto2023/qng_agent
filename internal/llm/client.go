@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"qng-agent/internal/harmony"
 	"qng-agent/internal/types"
 	"strings"
 	"time"
+
+	"github.com/Qitmeer/qng/log"
 )
 
 // Global harmony parser instance for efficiency
@@ -20,7 +21,7 @@ var harmonyParser = harmony.NewHarmonyParser()
 // filterHarmonyMetadata filters out GPT-OSS Harmony format metadata from message content
 // Uses the new harmony parser for better accuracy and performance
 func filterHarmonyMetadata(content string) string {
-	log.Printf("Filtering harmony metadata: %s", content)
+	log.Debug("llm", "action", "Filtering harmony metadata", "content", content)
 	return harmonyParser.FilterMetadata(content)
 }
 
@@ -229,6 +230,7 @@ func (c *OpenAIClient) StreamCompletion(ctx context.Context, messages []types.Ch
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
 	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second}
+	log.Debug("llm", "action", "StreamCompletion HTTP client created", "timeout_seconds", c.timeout)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
@@ -303,6 +305,7 @@ func (c *OpenAIClient) GetCompletion(ctx context.Context, messages []types.ChatM
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
 	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second}
+	log.Debug("llm", "action", "GetCompletion HTTP client created", "timeout_seconds", c.timeout)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
@@ -362,6 +365,9 @@ func (m *Manager) UpdateClientFromConfig(config types.LLMProviderConfig) {
 	timeout := config.Timeout
 	if timeout <= 0 {
 		timeout = 120 // Default 2 minutes
+		log.Debug("llm", "action", "LLM timeout not specified in config, using default", "timeout_seconds", timeout)
+	} else {
+		log.Debug("llm", "action", "LLM timeout configured", "timeout_seconds", timeout)
 	}
 
 	switch config.Type {
@@ -471,7 +477,7 @@ func (c *OpenRouterClient) StreamCompletion(ctx context.Context, messages []type
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
-	log.Printf("Request: %s %s", c.baseURL+"/chat/completions", string(jsonData))
+	log.Debug("llm", "action", "StreamCompletion Request", "url", c.baseURL+"/chat/completions", "data", string(jsonData))
 	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
@@ -489,6 +495,7 @@ func (c *OpenRouterClient) StreamCompletion(ctx context.Context, messages []type
 	}
 
 	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second}
+	log.Debug("llm", "action", "OpenRouter StreamCompletion HTTP client created", "timeout_seconds", c.timeout)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
@@ -553,7 +560,7 @@ func (c *OpenRouterClient) GetCompletion(ctx context.Context, messages []types.C
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
-	log.Printf("Request: %s %s", c.baseURL+"/chat/completions", string(jsonData))
+	log.Debug("llm", "action", "GetCompletion Request", "url", c.baseURL+"/chat/completions", "data", string(jsonData))
 	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
@@ -571,6 +578,7 @@ func (c *OpenRouterClient) GetCompletion(ctx context.Context, messages []types.C
 	}
 
 	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second}
+	log.Debug("llm", "action", "OpenRouter GetCompletion HTTP client created", "timeout_seconds", c.timeout)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)

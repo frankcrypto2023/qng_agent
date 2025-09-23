@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"qng-agent/internal/config"
 	"qng-agent/internal/llm"
 	"qng-agent/internal/mcp"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Qitmeer/qng/graph"
+	"github.com/Qitmeer/qng/log"
 	"github.com/tmc/langchaingo/llms"
 )
 
@@ -28,7 +28,13 @@ type LLMGraphManager struct {
 
 // NewLLMGraphManager creates a new LLM graph manager
 func NewLLMGraphManager(llmClient llm.Client, llmManager *llm.Manager, cfg *config.Config, storage storage.Storage) *LLMGraphManager {
-	mcpClient := mcp.NewClient()
+	// Create MCP client with configured timeout
+	mcpTimeout := cfg.MCP.Timeout
+	if mcpTimeout <= 0 {
+		mcpTimeout = 300 // Default 5 minutes
+	}
+	mcpClient := mcp.NewClientWithTimeout(mcpTimeout)
+	log.Debug("graph", "action", "MCP client initialized", "timeout_seconds", mcpTimeout)
 
 	// Initialize MCP client with configured servers
 	mcpClient.UpdateServersFromConfig(cfg.MCP.DefaultServers)
@@ -54,7 +60,7 @@ func (m *LLMGraphManager) ProcessUserMessage(ctx context.Context, userID, userMe
 		if settings, err := m.getUserSettings(userID); err == nil {
 			// Update LLM configuration if available
 			if settings.LLMProvider.URL != "" {
-				log.Printf("Updated LLM configuration for user %s: %+v", userID, settings.LLMProvider)
+				log.Debug("graph", "action", "Updated LLM configuration for user", "user_id", userID, "provider", settings.LLMProvider)
 				// Update LLM manager with user's configuration
 				m.llmManager.UpdateClientFromConfig(settings.LLMProvider)
 				// Get the updated client
@@ -64,11 +70,11 @@ func (m *LLMGraphManager) ProcessUserMessage(ctx context.Context, userID, userMe
 			// Update MCP servers if available
 			if len(settings.MCPServers) > 0 {
 				m.mcpClient.UpdateServers(settings.MCPServers)
-				log.Printf("Updated MCP servers for user %s: %d servers configured", userID, len(settings.MCPServers))
+				log.Debug("graph", "action", "Updated MCP servers for user", "user_id", userID, "server_count", len(settings.MCPServers))
 			} else {
 				// Fallback to default servers if user has no specific MCP configuration
 				m.mcpClient.UpdateServersFromConfig(m.config.MCP.DefaultServers)
-				log.Printf("Using default MCP servers for user %s", userID)
+				log.Debug("graph", "action", "Using default MCP servers for user", "user_id", userID)
 			}
 		}
 	}
@@ -215,7 +221,7 @@ func (m *LLMGraphManager) intentAnalysisNode(ctx context.Context, state []llms.M
 		if jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart {
 			jsonStr := response[jsonStart : jsonEnd+1]
 			if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
-				log.Printf("Failed to parse LLM response as JSON: %v", err)
+				log.Debug("graph", "action", "Failed to parse LLM response as JSON", "error", err)
 				// Return a general conversation intent as fallback
 				result = types.IntentAnalysisResult{
 					Intent:     "general_conversation",
@@ -223,7 +229,7 @@ func (m *LLMGraphManager) intentAnalysisNode(ctx context.Context, state []llms.M
 				}
 			}
 		} else {
-			log.Printf("No valid JSON found in LLM response: %s", response)
+			log.Debug("graph", "action", "No valid JSON found in LLM response", "response", response)
 			// Return a general conversation intent as fallback
 			result = types.IntentAnalysisResult{
 				Intent:     "general_conversation",
@@ -236,26 +242,25 @@ func (m *LLMGraphManager) intentAnalysisNode(ctx context.Context, state []llms.M
 	if result.Intent == "sub_workflow" {
 		// First check if LLM provided a complete sub_workflow structure
 		if result.SubWorkflow != nil {
-			log.Printf("=== LLM GENERATED SUB-WORKFLOW DETAILS ===")
-			log.Printf("Workflow ID: %s", result.SubWorkflow.ID)
-			log.Printf("Workflow Name: %s", result.SubWorkflow.Name)
-			log.Printf("Workflow Description: %s", result.SubWorkflow.Description)
-			log.Printf("Execution Mode: %s", result.SubWorkflow.ExecutionMode)
-			log.Printf("Aggregation Strategy: %s", result.SubWorkflow.AggregationStrategy)
-			log.Printf("Number of Tasks: %d", len(result.SubWorkflow.Tasks))
+			log.Debug("graph", "action", "LLM GENERATED SUB-WORKFLOW DETAILS")
+			log.Debug("graph", "action", "Workflow ID", "workflow_id", result.SubWorkflow.ID)
+			log.Debug("graph", "action", "Workflow Name", "workflow_name", result.SubWorkflow.Name)
+			log.Debug("graph", "action", "Workflow Description", "workflow_description", result.SubWorkflow.Description)
+			log.Debug("graph", "action", "Execution Mode", "execution_mode", result.SubWorkflow.ExecutionMode)
+			log.Debug("graph", "action", "Aggregation Strategy", "aggregation_strategy", result.SubWorkflow.AggregationStrategy)
+			log.Debug("graph", "action", "Number of Tasks", "task_count", len(result.SubWorkflow.Tasks))
 
 			for i, task := range result.SubWorkflow.Tasks {
-				log.Printf("--- Task %d ---", i+1)
-				log.Printf("  Task ID: %s", task.ID)
-				log.Printf("  Task Type: %s", task.TaskType)
-				log.Printf("  Tool Name: %s", task.ToolName)
-				log.Printf("  Description: %s", task.Description)
-				log.Printf("  RPC: %s", task.RPC)
-				log.Printf("  Depends On: %v", task.DependsOn)
-				log.Printf("  Parameters: %+v", task.Parameters)
+				log.Debug("graph", "action", "Task Details", "task_index", i+1, "task_id", task.ID)
+				log.Debug("graph", "action", "Task Type", "task_type", task.TaskType)
+				log.Debug("graph", "action", "Tool Name", "tool_name", task.ToolName)
+				log.Debug("graph", "action", "Description", "description", task.Description)
+				log.Debug("graph", "action", "RPC", "rpc", task.RPC)
+				log.Debug("graph", "action", "Depends On", "depends_on", task.DependsOn)
+				log.Debug("graph", "action", "Parameters", "parameters", task.Parameters)
 				// Note: OutputMapping field not available in TaskExecution type
 			}
-			log.Printf("=== END SUB-WORKFLOW DETAILS ===")
+			log.Debug("graph", "action", "END SUB-WORKFLOW DETAILS")
 
 			// Ensure all tasks have proper TaskType set
 			for i := range result.SubWorkflow.Tasks {
@@ -268,39 +273,38 @@ func (m *LLMGraphManager) intentAnalysisNode(ctx context.Context, state []llms.M
 			}
 		} else if result.MultiTask {
 			// Fallback: generate using legacy method if LLM didn't provide sub_workflow
-			log.Printf("LLM did not provide sub-workflow structure, generating using legacy method...")
+			log.Debug("graph", "action", "LLM did not provide sub-workflow structure, generating using legacy method")
 			subWorkflow := m.generateSubWorkflowFromAnalysis(userMessage, &result)
 			if subWorkflow != nil {
 				result.SubWorkflow = subWorkflow
-				log.Printf("=== GENERATED SUB-WORKFLOW DETAILS (LEGACY) ===")
-				log.Printf("Workflow ID: %s", result.SubWorkflow.ID)
-				log.Printf("Workflow Name: %s", result.SubWorkflow.Name)
-				log.Printf("Workflow Description: %s", result.SubWorkflow.Description)
-				log.Printf("Execution Mode: %s", result.SubWorkflow.ExecutionMode)
-				log.Printf("Aggregation Strategy: %s", result.SubWorkflow.AggregationStrategy)
-				log.Printf("Number of Tasks: %d", len(result.SubWorkflow.Tasks))
+				log.Debug("graph", "action", "GENERATED SUB-WORKFLOW DETAILS (LEGACY)")
+				log.Debug("graph", "action", "Workflow ID", "workflow_id", result.SubWorkflow.ID)
+				log.Debug("graph", "action", "Workflow Name", "workflow_name", result.SubWorkflow.Name)
+				log.Debug("graph", "action", "Workflow Description", "workflow_description", result.SubWorkflow.Description)
+				log.Debug("graph", "action", "Execution Mode", "execution_mode", result.SubWorkflow.ExecutionMode)
+				log.Debug("graph", "action", "Aggregation Strategy", "aggregation_strategy", result.SubWorkflow.AggregationStrategy)
+				log.Debug("graph", "action", "Number of Tasks", "task_count", len(result.SubWorkflow.Tasks))
 
 				for i, task := range result.SubWorkflow.Tasks {
-					log.Printf("--- Task %d ---", i+1)
-					log.Printf("  Task ID: %s", task.ID)
-					log.Printf("  Task Type: %s", task.TaskType)
-					log.Printf("  Tool Name: %s", task.ToolName)
-					log.Printf("  Description: %s", task.Description)
-					log.Printf("  RPC: %s", task.RPC)
-					log.Printf("  Depends On: %v", task.DependsOn)
-					log.Printf("  Parameters: %+v", task.Parameters)
+					log.Debug("graph", "action", "Task Details", "task_index", i+1, "task_id", task.ID)
+					log.Debug("graph", "action", "Task Type", "task_type", task.TaskType)
+					log.Debug("graph", "action", "Tool Name", "tool_name", task.ToolName)
+					log.Debug("graph", "action", "Description", "description", task.Description)
+					log.Debug("graph", "action", "RPC", "rpc", task.RPC)
+					log.Debug("graph", "action", "Depends On", "depends_on", task.DependsOn)
+					log.Debug("graph", "action", "Parameters", "parameters", task.Parameters)
 					// Note: OutputMapping field not available in TaskExecution type
 				}
-				log.Printf("=== END GENERATED SUB-WORKFLOW DETAILS ===")
+				log.Debug("graph", "action", "END GENERATED SUB-WORKFLOW DETAILS")
 			} else {
-				log.Printf("Failed to generate sub-workflow using legacy method")
+				log.Debug("graph", "action", "Failed to generate sub-workflow using legacy method")
 			}
 		} else {
-			log.Printf("LLM determined sub-workflow intent but provided no sub-workflow structure and MultiTask is false")
+			log.Debug("graph", "action", "LLM determined sub-workflow intent but provided no sub-workflow structure and MultiTask is false")
 		}
 	}
 
-	log.Printf("Intent analysis result: %+v", result)
+	log.Debug("graph", "action", "Intent analysis result", "%+v", result)
 
 	// Add intent result to state as a system message
 	intentData, _ := json.Marshal(result)
@@ -319,7 +323,7 @@ func (m *LLMGraphManager) generateSubWorkflowFromAnalysis(userMessage string, in
 	// Use LLM to generate the sub-workflow structure
 	subWorkflow, err := m.generateSubWorkflowWithLLM(userMessage, intentResult)
 	if err != nil {
-		log.Printf("Failed to generate sub-workflow with LLM: %v", err)
+		log.Debug("graph", "action", "Failed to generate sub-workflow with LLM", "%v", err)
 		return nil
 	}
 
@@ -466,13 +470,13 @@ func (m *LLMGraphManager) mcpToolExecutionNode(ctx context.Context, state []llms
 	// Use LLM to validate and enhance parameters if needed
 	enhancedParams, err := m.enhanceParametersWithLLM(ctx, intentResult.MCPTool, parameters, state)
 	if err != nil {
-		log.Printf("Failed to enhance parameters with LLM: %v", err)
+		log.Debug("graph", "action", "Failed to enhance parameters with LLM", "%v", err)
 		// Continue with original parameters
 	} else {
 		parameters = enhancedParams
 	}
 
-	log.Printf("Calling MCP tool '%s' with parameters: %+v", intentResult.MCPTool, parameters)
+	log.Debug("graph", "action", "Calling MCP tool '%s' with parameters", "%+v", intentResult.MCPTool, parameters)
 
 	// Call the real MCP server
 	result, err := m.mcpClient.CallTool(ctx, intentResult.MCPTool, parameters)
@@ -485,7 +489,7 @@ func (m *LLMGraphManager) mcpToolExecutionNode(ctx context.Context, state []llms
 		}
 		resultData, _ := json.Marshal(errorResult)
 
-		log.Printf("MCP tool execution failed: %v", err)
+		log.Debug("graph", "action", "MCP tool execution failed", "%v", err)
 
 		// Add error result to state
 		toolMessage := llms.MessageContent{
@@ -503,12 +507,12 @@ func (m *LLMGraphManager) mcpToolExecutionNode(ctx context.Context, state []llms
 		resultData = []byte(fmt.Sprintf(`{"error": "Failed to marshal result", "raw_result": "%v"}`, result))
 	}
 
-	log.Printf("MCP tool execution successful: %s", string(resultData))
+	log.Debug("graph", "action", "MCP tool execution successful", "%s", string(resultData))
 
 	// Format the result using LLM for better user experience
 	formattedResult, err := m.formatToolResultWithLLM(ctx, intentResult.MCPTool, result, state)
 	if err != nil {
-		log.Printf("Failed to format tool result with LLM: %v", err)
+		log.Debug("graph", "action", "Failed to format tool result with LLM", "%v", err)
 		// Use raw result if formatting fails
 		formattedResult = string(resultData)
 	}
@@ -549,19 +553,19 @@ func (m *LLMGraphManager) subWorkflowExecutionNode(ctx context.Context, state []
 	}
 
 	subWorkflow := intentResult.SubWorkflow
-	log.Printf("=== EXECUTING SUB-WORKFLOW ===")
-	log.Printf("Workflow Name: %s", subWorkflow.Name)
-	log.Printf("Number of Tasks: %d", len(subWorkflow.Tasks))
-	log.Printf("Execution Mode: %s", subWorkflow.ExecutionMode)
-	log.Printf("Aggregation Strategy: %s", subWorkflow.AggregationStrategy)
+	log.Debug("graph", "action", "=== EXECUTING SUB-WORKFLOW ===")
+	log.Debug("graph", "action", "Workflow Name", "%s", subWorkflow.Name)
+	log.Debug("graph", "action", "Number of Tasks", "%d", len(subWorkflow.Tasks))
+	log.Debug("graph", "action", "Execution Mode", "%s", subWorkflow.ExecutionMode)
+	log.Debug("graph", "action", "Aggregation Strategy", "%s", subWorkflow.AggregationStrategy)
 
 	// Log task details before execution
 	for i, task := range subWorkflow.Tasks {
-		log.Printf("Pre-execution Task %d: %s", i+1, task.ID)
-		log.Printf("  Tool: %s", task.ToolName)
-		log.Printf("  Parameters: %+v", task.Parameters)
-		log.Printf("  Depends On: %v", task.DependsOn)
-		log.Printf("  RPC: %s", task.RPC)
+		log.Debug("graph", "action", "Pre-execution Task %d", "%s", i+1, task.ID)
+		log.Debug("graph", "action", "  Tool", "%s", task.ToolName)
+		log.Debug("graph", "action", "  Parameters", "%+v", task.Parameters)
+		log.Debug("graph", "action", "  Depends On", "%v", task.DependsOn)
+		log.Debug("graph", "action", "  RPC", "%s", task.RPC)
 	}
 
 	// Execute tasks based on execution mode
@@ -576,7 +580,7 @@ func (m *LLMGraphManager) subWorkflowExecutionNode(ctx context.Context, state []
 	}
 
 	if err != nil {
-		log.Printf("Sub-workflow execution failed: %v", err)
+		log.Debug("graph", "action", "Sub-workflow execution failed", "%v", err)
 		// Create error result
 		errorResult := types.SubWorkflowResult{
 			WorkflowID:  subWorkflow.ID,
@@ -608,7 +612,7 @@ func (m *LLMGraphManager) subWorkflowExecutionNode(ctx context.Context, state []
 		TotalTime:   time.Since(startTime),
 	}
 
-	log.Printf("Sub-workflow completed: %s, Success: %v, Total time: %v",
+	log.Debug("graph", "action", "Sub-workflow completed: %s, Success: %v, Total time: %v",
 		subWorkflow.Name, aggregatedSuccess, subWorkflowResult.TotalTime)
 
 	// Add sub-workflow result to state
@@ -629,7 +633,7 @@ func (m *LLMGraphManager) executeTasksSequentially(ctx context.Context, tasks []
 	resultMap := make(map[string]map[string]interface{}) // taskID -> result data
 
 	for _, task := range tasks {
-		log.Printf("Executing task sequentially: %s (%s)", task.ID, task.Description)
+		log.Debug("graph", "action", "Executing task sequentially", "%s (%s)", task.ID, task.Description)
 
 		// Check for parameter dependencies and resolve them
 		resolvedTask := task
@@ -637,7 +641,7 @@ func (m *LLMGraphManager) executeTasksSequentially(ctx context.Context, tasks []
 			var err error
 			resolvedTask, err = m.resolveDependentParameters(ctx, task, results, resultMap)
 			if err != nil {
-				log.Printf("Failed to resolve parameters for task %s: %v", task.ID, err)
+				log.Debug("graph", "action", "Failed to resolve parameters for task %s", "%v", task.ID, err)
 				return results, fmt.Errorf("parameter resolution failed for task %s: %w", task.ID, err)
 			}
 		}
@@ -655,11 +659,11 @@ func (m *LLMGraphManager) executeTasksSequentially(ctx context.Context, tasks []
 
 		if err != nil {
 			taskResult.Error = err.Error()
-			log.Printf("Task %s failed: %v", task.ID, err)
+			log.Debug("graph", "action", "Task %s failed", "%v", task.ID, err)
 		} else {
 			taskResult.Result = result
 			resultMap[task.ID] = result
-			log.Printf("Task %s completed successfully in %v", task.ID, executionTime)
+			log.Debug("graph", "action", "Task %s completed successfully in %v", task.ID, executionTime)
 		}
 
 		results = append(results, taskResult)
@@ -670,41 +674,41 @@ func (m *LLMGraphManager) executeTasksSequentially(ctx context.Context, tasks []
 
 // resolveDependentParameters resolves parameters that depend on previous task results using LLM
 func (m *LLMGraphManager) resolveDependentParameters(ctx context.Context, task types.TaskExecution, previousResults []types.TaskResult, resultMap map[string]map[string]interface{}) (types.TaskExecution, error) {
-	log.Printf("=== RESOLVING DEPENDENT PARAMETERS ===")
-	log.Printf("Task ID: %s", task.ID)
-	log.Printf("Tool Name: %s", task.ToolName)
-	log.Printf("Original Parameters: %+v", task.Parameters)
-	log.Printf("Depends On: %v", task.DependsOn)
+	log.Debug("graph", "action", "=== RESOLVING DEPENDENT PARAMETERS ===")
+	log.Debug("graph", "action", "Task ID", "%s", task.ID)
+	log.Debug("graph", "action", "Tool Name", "%s", task.ToolName)
+	log.Debug("graph", "action", "Original Parameters", "%+v", task.Parameters)
+	log.Debug("graph", "action", "Depends On", "%v", task.DependsOn)
 
 	// Collect dependency results
 	dependencyContext := make(map[string]interface{})
 	for _, depTaskID := range task.DependsOn {
 		if result, exists := resultMap[depTaskID]; exists {
 			dependencyContext[depTaskID] = result
-			log.Printf("Found dependency result for %s: %+v", depTaskID, result)
+			log.Debug("graph", "action", "Found dependency result for %s", "%+v", depTaskID, result)
 		} else {
-			log.Printf("WARNING: No result found for dependency %s", depTaskID)
+			log.Debug("graph", "action", "WARNING", "No result found for dependency %s", depTaskID)
 		}
 	}
 
-	log.Printf("Dependency Context: %+v", dependencyContext)
+	log.Debug("graph", "action", "Dependency Context", "%+v", dependencyContext)
 
 	// Use LLM to extract parameters from dependency results
-	log.Printf("Calling LLM to extract parameters...")
+	log.Debug("graph", "action", "Calling LLM to extract parameters...")
 	resolvedParameters, err := m.extractParametersWithLLM(ctx, task, dependencyContext)
 	if err != nil {
-		log.Printf("LLM parameter extraction failed: %v", err)
+		log.Debug("graph", "action", "LLM parameter extraction failed", "%v", err)
 		return task, fmt.Errorf("LLM parameter extraction failed: %w", err)
 	}
 
-	log.Printf("LLM extracted parameters: %+v", resolvedParameters)
+	log.Debug("graph", "action", "LLM extracted parameters", "%+v", resolvedParameters)
 
 	// Create resolved task with updated parameters
 	resolvedTask := task
 	resolvedTask.Parameters = resolvedParameters
 
-	log.Printf("Final resolved task parameters: %+v", resolvedTask.Parameters)
-	log.Printf("=== END PARAMETER RESOLUTION ===")
+	log.Debug("graph", "action", "Final resolved task parameters", "%+v", resolvedTask.Parameters)
+	log.Debug("graph", "action", "=== END PARAMETER RESOLUTION ===")
 	return resolvedTask, nil
 }
 
@@ -802,19 +806,19 @@ Expected JSON format:
 
 // extractParametersWithLLM uses LLM to extract parameters from previous task results
 func (m *LLMGraphManager) extractParametersWithLLM(ctx context.Context, task types.TaskExecution, dependencyResults map[string]interface{}) (map[string]interface{}, error) {
-	log.Printf("=== EXTRACTING PARAMETERS WITH LLM ===")
-	log.Printf("Current Task: %s (%s)", task.ID, task.ToolName)
-	log.Printf("Dependency Results Count: %d", len(dependencyResults))
+	log.Debug("graph", "action", "=== EXTRACTING PARAMETERS WITH LLM ===")
+	log.Debug("graph", "action", "Current Task", "%s (%s)", task.ID, task.ToolName)
+	log.Debug("graph", "action", "Dependency Results Count", "%d", len(dependencyResults))
 
 	// Build context information for LLM
 	contextStr := ""
 	for taskID, result := range dependencyResults {
 		resultJSON, _ := json.Marshal(result)
 		contextStr += fmt.Sprintf("Task %s result: %s\n", taskID, string(resultJSON))
-		log.Printf("Dependency %s result: %s", taskID, string(resultJSON))
+		log.Debug("graph", "action", "Dependency %s result", "%s", taskID, string(resultJSON))
 	}
 
-	log.Printf("Context string for LLM: %s", contextStr)
+	log.Debug("graph", "action", "Context string for LLM", "%s", contextStr)
 
 	// Get available MCP tools to understand parameter requirements
 	mcpTools := m.getAvailableMCPTools()
@@ -882,39 +886,39 @@ Expected JSON format:
 		{Role: "user", Content: prompt},
 	}
 
-	log.Printf("Sending prompt to LLM for parameter extraction...")
-	log.Printf("Prompt length: %d characters", len(prompt))
+	log.Debug("graph", "action", "Sending prompt to LLM for parameter extraction...")
+	log.Debug("graph", "action", "Prompt length", "%d characters", len(prompt))
 
 	response, err := m.llmClient.GetCompletion(ctx, chatMessages)
 	if err != nil {
-		log.Printf("LLM completion failed: %v", err)
+		log.Debug("graph", "action", "LLM completion failed", "%v", err)
 		return nil, fmt.Errorf("LLM completion failed: %w", err)
 	}
 
-	log.Printf("LLM response received: %s", response)
+	log.Debug("graph", "action", "LLM response received", "%s", response)
 
 	// Parse LLM response as JSON
 	var extractedParams map[string]interface{}
 	if err := json.Unmarshal([]byte(response), &extractedParams); err != nil {
-		log.Printf("Failed to parse LLM response as JSON: %v", err)
+		log.Debug("graph", "action", "Failed to parse LLM response as JSON", "%v", err)
 		// Try to extract JSON from response
 		jsonStart := strings.Index(response, "{")
 		jsonEnd := strings.LastIndex(response, "}")
 		if jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart {
 			jsonStr := response[jsonStart : jsonEnd+1]
-			log.Printf("Extracted JSON string: %s", jsonStr)
+			log.Debug("graph", "action", "Extracted JSON string", "%s", jsonStr)
 			if err := json.Unmarshal([]byte(jsonStr), &extractedParams); err != nil {
-				log.Printf("Failed to parse extracted JSON: %v", err)
+				log.Debug("graph", "action", "Failed to parse extracted JSON", "%v", err)
 				return nil, fmt.Errorf("failed to parse LLM response as JSON: %w", err)
 			}
 		} else {
-			log.Printf("No valid JSON found in LLM response")
+			log.Debug("graph", "action", "No valid JSON found in LLM response")
 			return nil, fmt.Errorf("no valid JSON found in LLM response: %s", response)
 		}
 	}
 
-	log.Printf("Successfully extracted parameters: %+v", extractedParams)
-	log.Printf("=== END LLM PARAMETER EXTRACTION ===")
+	log.Debug("graph", "action", "Successfully extracted parameters", "%+v", extractedParams)
+	log.Debug("graph", "action", "=== END LLM PARAMETER EXTRACTION ===")
 	return extractedParams, nil
 }
 
@@ -1032,7 +1036,7 @@ func (m *LLMGraphManager) executeTasksInParallelSimple(ctx context.Context, task
 	// Start all tasks concurrently
 	for _, task := range tasks {
 		go func(t types.TaskExecution) {
-			log.Printf("Executing task in parallel: %s (%s)", t.ID, t.Description)
+			log.Debug("graph", "action", "Executing task in parallel", "%s (%s)", t.ID, t.Description)
 
 			startTime := time.Now()
 			result, err := m.executeTask(ctx, t)
@@ -1047,11 +1051,11 @@ func (m *LLMGraphManager) executeTasksInParallelSimple(ctx context.Context, task
 
 			if err != nil {
 				taskResult.Error = err.Error()
-				log.Printf("Parallel task %s failed: %v", t.ID, err)
+				log.Debug("graph", "action", "Parallel task %s failed", "%v", t.ID, err)
 				errorsChan <- err
 			} else {
 				taskResult.Result = result
-				log.Printf("Parallel task %s completed successfully in %v", t.ID, executionTime)
+				log.Debug("graph", "action", "Parallel task %s completed successfully in %v", t.ID, executionTime)
 			}
 
 			resultsChan <- taskResult
@@ -1117,15 +1121,15 @@ func (m *LLMGraphManager) executeTasksWithDependencies(ctx context.Context, task
 		var resolvedTasks []types.TaskExecution
 		for _, task := range readyTasks {
 			if len(task.DependsOn) > 0 {
-				log.Printf("=== RESOLVING PARAMETERS FOR TASK: %s ===", task.ID)
-				log.Printf("Original parameters: %+v", task.Parameters)
-				log.Printf("Dependencies: %v", task.DependsOn)
-				log.Printf("Available results: %+v", resultMap)
+				log.Debug("graph", "action", "=== RESOLVING PARAMETERS FOR TASK", "%s ===", task.ID)
+				log.Debug("graph", "action", "Original parameters", "%+v", task.Parameters)
+				log.Debug("graph", "action", "Dependencies", "%v", task.DependsOn)
+				log.Debug("graph", "action", "Available results", "%+v", resultMap)
 
 				// Resolve dependent parameters
 				resolvedTask, err := m.resolveDependentParameters(ctx, task, results, resultMap)
 				if err != nil {
-					log.Printf("Failed to resolve parameters for task %s: %v", task.ID, err)
+					log.Debug("graph", "action", "Failed to resolve parameters for task %s", "%v", task.ID, err)
 					// Add failed task to results
 					results = append(results, types.TaskResult{
 						TaskID:  task.ID,
@@ -1137,11 +1141,11 @@ func (m *LLMGraphManager) executeTasksWithDependencies(ctx context.Context, task
 					continue
 				}
 
-				log.Printf("Resolved parameters: %+v", resolvedTask.Parameters)
-				log.Printf("=== END PARAMETER RESOLUTION FOR TASK: %s ===", task.ID)
+				log.Debug("graph", "action", "Resolved parameters", "%+v", resolvedTask.Parameters)
+				log.Debug("graph", "action", "=== END PARAMETER RESOLUTION FOR TASK", "%s ===", task.ID)
 				resolvedTasks = append(resolvedTasks, resolvedTask)
 			} else {
-				log.Printf("Task %s has no dependencies, using original parameters: %+v", task.ID, task.Parameters)
+				log.Debug("graph", "action", "Task %s has no dependencies, using original parameters", "%+v", task.ID, task.Parameters)
 				resolvedTasks = append(resolvedTasks, task)
 			}
 		}
@@ -1180,7 +1184,7 @@ func (m *LLMGraphManager) executeTask(ctx context.Context, task types.TaskExecut
 
 // executeMCPTask executes an MCP tool task
 func (m *LLMGraphManager) executeMCPTask(ctx context.Context, task types.TaskExecution) (map[string]interface{}, error) {
-	log.Printf("Calling MCP tool '%s' with parameters: %+v for RPC: %s",
+	log.Debug("graph", "action", "Calling MCP tool '%s' with parameters: %+v for RPC: %s",
 		task.ToolName, task.Parameters, task.RPC)
 
 	// Call the MCP tool with the specific parameters
@@ -1232,12 +1236,12 @@ func (m *LLMGraphManager) aggregateResults(results []types.TaskResult, strategy 
 		if result.Success {
 			if result.Result != nil {
 				// Let LLM handle data extraction and formatting - just pass raw result
-				log.Printf("Task result (raw for LLM): %+v", result.Result)
+				log.Debug("graph", "action", "Task result (raw for LLM)", "%+v", result.Result)
 				summaryParts = append(summaryParts,
 					fmt.Sprintf("✅ %s%s: Raw result: %+v (took %v)",
 						result.TaskID, rpcInfo, result.Result, result.ExecutionTime))
 			} else {
-				log.Printf("Task result is nil")
+				log.Debug("graph", "action", "Task result is nil")
 				summaryParts = append(summaryParts,
 					fmt.Sprintf("✅ %s%s: Success but no data (took %v)",
 						result.TaskID, rpcInfo, result.ExecutionTime))
@@ -1310,7 +1314,7 @@ func (m *LLMGraphManager) web3WorkflowExecutionNode(ctx context.Context, state [
 	}
 
 	resultData, _ := json.Marshal(result)
-	log.Printf("Web3 workflow execution result: %s", string(resultData))
+	log.Debug("graph", "action", "Web3 workflow execution result", "%s", string(resultData))
 
 	// Add workflow result to state
 	workflowMessage := llms.MessageContent{
@@ -1408,13 +1412,13 @@ func (m *LLMGraphManager) responseGenerationNode(ctx context.Context, state []ll
 		// Parse sub-workflow result to provide better context
 		var subResult types.SubWorkflowResult
 		if err := json.Unmarshal([]byte(subWorkflowResult), &subResult); err == nil {
-			log.Printf("SubWorkflow result for LLM: %s", subResult.Summary)
+			log.Debug("graph", "action", "SubWorkflow result for LLM", "%s", subResult.Summary)
 			dataContext += fmt.Sprintf("Sub-workflow execution result: %s\n", subResult.Summary)
 			dataContext += fmt.Sprintf("Total execution time: %v\n", subResult.TotalTime)
 			dataContext += fmt.Sprintf("Tasks completed: %d/%d successful\n",
 				len(subResult.TaskResults), len(subResult.TaskResults))
 		} else {
-			log.Printf("SubWorkflow result (raw) for LLM: %s", subWorkflowResult)
+			log.Debug("graph", "action", "SubWorkflow result (raw) for LLM", "%s", subWorkflowResult)
 			dataContext += fmt.Sprintf("Sub-workflow execution result: %s\n", subWorkflowResult)
 		}
 	}
@@ -1493,7 +1497,7 @@ For blockchain data presentation:
 		return state, fmt.Errorf("LLM completion failed: %w", err)
 	}
 
-	log.Printf("Generated response: %s", response[:min(len(response), 100)]+"...")
+	log.Debug("graph", "action", "Generated response", "%s", response[:min(len(response), 100)]+"...")
 
 	// Add final response to state
 	responseMessage := llms.MessageContent{
@@ -1526,7 +1530,7 @@ func (m *LLMGraphManager) routeAfterIntent(ctx context.Context, state []llms.Mes
 		}
 	}
 
-	log.Printf("Routing based on intent: %s", intentResult.Intent)
+	log.Debug("graph", "action", "Routing based on intent", "%s", intentResult.Intent)
 
 	switch intentResult.Intent {
 	case "mcp_tool":
@@ -1643,7 +1647,7 @@ CRITICAL INSTRUCTIONS:
 - Design tasks based on actual tool requirements, not predefined templates
 - Consider user's intent for result analysis (comparison, summarization, etc.)`, userMessage, mcpTools, web3Workflows)
 
-	// log.Printf("Intent analysis prompt: %s", prompt)
+	// log.Debug("graph", "action", "Intent analysis prompt", "%s", prompt)
 	return prompt
 }
 
@@ -1678,15 +1682,15 @@ func (m *LLMGraphManager) getMCPServerTools(serverName string) []string {
 
 		tools, err := m.mcpClient.GetServerTools(ctx, serverURL)
 		if err == nil && len(tools) > 0 {
-			// log.Printf("Got tools from server %s: %v", serverName, tools)
+			// log.Debug("graph", "action", "Got tools from server %s", "%v", serverName, tools)
 			return m.formatToolsFromServer(tools)
 		}
 
-		log.Printf("Failed to get tools from server %s: %v", serverName, err)
+		log.Debug("graph", "action", "Failed to get tools from server %s", "%v", serverName, err)
 	}
 
 	// Return empty if server is not accessible - no hardcoded fallback
-	log.Printf("No tools available for server %s", serverName)
+	log.Debug("graph", "action", "No tools available for server %s", serverName)
 	return []string{}
 }
 

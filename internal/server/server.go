@@ -2,12 +2,14 @@ package server
 
 import (
 	"fmt"
+	"net/http"
 	"qng-agent/internal/config"
 	"qng-agent/internal/handlers"
 	"qng-agent/internal/llm"
 	"qng-agent/internal/middleware"
 	"qng-agent/internal/session"
 	"qng-agent/internal/storage"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -108,9 +110,18 @@ func (s *Server) setupRoutes() {
 func (s *Server) Start() error {
 	addr := fmt.Sprintf("%s:%s", s.config.Server.Host, s.config.Server.Port)
 	
+	// Create HTTP server with configured timeouts
+	server := &http.Server{
+		Addr:         addr,
+		Handler:      s.engine,
+		ReadTimeout:  time.Duration(s.config.Server.ReadTimeout) * time.Second,
+		WriteTimeout: time.Duration(s.config.Server.WriteTimeout) * time.Second,
+	}
+	
 	fmt.Printf("🚀 QNG Intelligent Agent server starting on %s\n", addr)
 	fmt.Printf("📊 Health check: http://%s/api/health\n", addr)
 	fmt.Printf("🌐 Frontend: http://%s\n", addr)
+	fmt.Printf("⏱️  Server timeouts - Read: %ds, Write: %ds\n", s.config.Server.ReadTimeout, s.config.Server.WriteTimeout)
 	
-	return s.engine.Run(addr)
+	return server.ListenAndServe()
 }

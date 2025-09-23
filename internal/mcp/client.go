@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"qng-agent/internal/config"
 	"qng-agent/internal/types"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/Qitmeer/qng/log"
 )
 
 // Client represents an MCP client for communicating with MCP servers
@@ -26,18 +26,38 @@ type Client struct {
 	sseConnections map[string]*http.Response // sessionID -> active SSE connection (changed from serverURL)
 	mutex          sync.RWMutex              // Protect concurrent access to sessions and connections
 	requestCounter int64                     // Counter for unique request IDs
+	timeout        time.Duration             // Request timeout duration
 }
 
 // NewClient creates a new MCP client
 func NewClient() *Client {
+	timeout := 300 * time.Second // 5 minutes default timeout
+	log.Debug("mcp", "action", "MCP client created with default timeout", "timeout", timeout)
 	return &Client{
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: timeout,
 		},
 		servers:        make(map[string]string),
 		sessions:       make(map[string]string),
 		sseConnections: make(map[string]*http.Response),
 		requestCounter: 0,
+		timeout:        timeout,
+	}
+}
+
+// NewClientWithTimeout creates a new MCP client with custom timeout
+func NewClientWithTimeout(timeoutSeconds int) *Client {
+	timeout := time.Duration(timeoutSeconds) * time.Second
+	log.Debug("mcp", "action", "MCP client created with custom timeout", "timeout", timeout)
+	return &Client{
+		httpClient: &http.Client{
+			Timeout: timeout,
+		},
+		servers:        make(map[string]string),
+		sessions:       make(map[string]string),
+		sseConnections: make(map[string]*http.Response),
+		requestCounter: 0,
+		timeout:        timeout,
 	}
 }
 
@@ -91,7 +111,7 @@ func (c *Client) callSSETool(ctx context.Context, serverURL string, toolName str
 		// For MCP SSE protocol, we need to get session and use message endpoint
 		sessionID, messageEndpoint, err := c.initMCPSessionSafe(ctx, serverURL)
 		if err != nil {
-			log.Printf("Failed to initialize MCP session for tool call (attempt %d): %v", attempt+1, err)
+			log.Debug("mcp", "action", "Failed to initialize MCP session for tool call", "attempt", attempt+1, "error", err)
 			if attempt == 0 {
 				// Clear cached session and try again
 				c.mutex.Lock()
@@ -135,6 +155,7 @@ func (c *Client) callSSETool(ctx context.Context, serverURL string, toolName str
 		req.Header.Set("Cache-Control", "no-cache")
 		req.Header.Set("User-Agent", "QNG-Agent/1.0")
 
+		log.Debug("mcp", "action", "MCP tool call request sent", "endpoint", messageEndpoint, "timeout", c.httpClient.Timeout)
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to call message endpoint: %w", err)
@@ -153,7 +174,7 @@ func (c *Client) callSSETool(ctx context.Context, serverURL string, toolName str
 				delete(c.sessions, sseURL)
 				delete(c.sseConnections, sessionID) // Use sessionID as key
 				c.mutex.Unlock()
-				log.Printf("Session expired for tool call, cleared from cache")
+				log.Debug("mcp", "action", "Session expired for tool call, cleared from cache")
 				if attempt == 0 {
 					continue
 				}
@@ -180,7 +201,7 @@ func (c *Client) readSSEToolCallResponse(sessionID, expectedID string) (map[stri
 	}
 
 	scanner := bufio.NewScanner(sseConn.Body)
-	timeout := time.NewTimer(30 * time.Second)
+	timeout := time.NewTimer(c.timeout)
 	defer timeout.Stop()
 
 	done := make(chan map[string]interface{})
@@ -222,10 +243,10 @@ func (c *Client) readSSEToolCallResponse(sessionID, expectedID string) (map[stri
 
 						// Extract result
 						if result, ok := jsonRpcResponse["result"]; ok {
-							log.Printf("MCP raw result: %v (type: %T)", result, result)
+							log.Debug("mcp", "action", "MCP raw result", "result", result, "type", fmt.Sprintf("%T", result))
 							// Convert result to map using mcp-go compatible format
 							resultMap := c.convertMCPResult(result)
-							log.Printf("MCP converted result: %+v", resultMap)
+							log.Debug("mcp", "action", "MCP converted result", "result", resultMap)
 							done <- resultMap
 							return
 						}
@@ -375,6 +396,7 @@ func (c *Client) initMCPSession(ctx context.Context, sseURL string) (string, str
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("User-Agent", "QNG-Agent/1.0")
 
+	log.Debug("mcp", "action", "MCP SSE connection request sent", "url", sseURL, "timeout", c.httpClient.Timeout)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to connect to SSE: %w", err)
@@ -387,7 +409,8 @@ func (c *Client) initMCPSession(ctx context.Context, sseURL string) (string, str
 
 	// Read the first SSE message to get session info
 	scanner := bufio.NewScanner(resp.Body)
-	timeout := time.NewTimer(5 * time.Second)
+	// Use shorter timeout for session initialization (10 seconds should be enough)
+	timeout := time.NewTimer(10 * time.Second)
 	defer timeout.Stop()
 
 	done := make(chan struct{})
@@ -397,7 +420,7 @@ func (c *Client) initMCPSession(ctx context.Context, sseURL string) (string, str
 		defer close(done)
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
-			log.Printf("SSE received: %s", line)
+			log.Debug("mcp", "action", "SSE received", "line", line)
 
 			if strings.HasPrefix(line, "data: ") {
 				data := strings.TrimPrefix(line, "data: ")
@@ -425,7 +448,7 @@ func (c *Client) initMCPSession(ctx context.Context, sseURL string) (string, str
 			// Cache the session and KEEP the SSE connection alive under sessionID
 			c.sessions[sseURL] = sessionID
 			c.sseConnections[sessionID] = resp // Store by sessionID instead of sseURL
-			log.Printf("Established active SSE connection for session: %s", sessionID)
+			log.Debug("mcp", "action", "Established active SSE connection for session", "session_id", sessionID)
 			return sessionID, messageEndpoint, nil
 		}
 		resp.Body.Close()
@@ -454,7 +477,7 @@ func (c *Client) getSSEServerTools(ctx context.Context, serverURL string) ([]map
 		// Step 1: Connect to SSE endpoint to get session ID
 		sessionID, messageEndpoint, err := c.initMCPSession(ctx, serverURL)
 		if err != nil {
-			log.Printf("Failed to initialize MCP session (attempt %d): %v", attempt+1, err)
+			log.Debug("mcp", "action", "Failed to initialize MCP session", "attempt", attempt+1, "error", err)
 			if attempt == 0 {
 				// Clear cached session and try again
 				delete(c.sessions, serverURL)
@@ -466,7 +489,7 @@ func (c *Client) getSSEServerTools(ctx context.Context, serverURL string) ([]map
 		// Step 2: Use the message endpoint to call tools/list
 		tools, err := c.callMCPToolsList(ctx, messageEndpoint, sessionID)
 		if err != nil {
-			log.Printf("Failed to call tools/list (attempt %d): %v", attempt+1, err)
+			log.Debug("mcp", "action", "Failed to call tools/list", "attempt", attempt+1, "error", err)
 			// If session was invalid, the cache was already cleared, retry once
 			if attempt == 0 && strings.Contains(err.Error(), "Invalid session ID") {
 				continue
@@ -474,7 +497,7 @@ func (c *Client) getSSEServerTools(ctx context.Context, serverURL string) ([]map
 			return c.getDefaultTools(serverURL), nil
 		}
 
-		log.Printf("Successfully got %d tools from MCP server", len(tools))
+		log.Debug("mcp", "action", "Successfully got tools from MCP server", "count", len(tools))
 		return tools, nil
 	}
 
@@ -517,6 +540,7 @@ func (c *Client) callMCPToolsList(ctx context.Context, messageEndpoint, sessionI
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("User-Agent", "QNG-Agent/1.0")
 
+	log.Debug("mcp", "action", "MCP tools/list request sent", "endpoint", messageEndpoint, "timeout", c.httpClient.Timeout)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call message endpoint: %w", err)
@@ -535,20 +559,18 @@ func (c *Client) callMCPToolsList(ctx context.Context, messageEndpoint, sessionI
 
 			c.mutex.Lock()
 			delete(c.sessions, sseURL)
-			if sseConn != nil {
-				sseConn.Body.Close()
-			}
+			sseConn.Body.Close()
 			delete(c.sseConnections, sessionID) // Use sessionID as key
 			c.mutex.Unlock()
-			log.Printf("Session expired for %s, cleared from cache", sessionID)
+			log.Debug("mcp", "action", "Session expired, cleared from cache", "session_id", sessionID)
 		}
 		return nil, fmt.Errorf("message endpoint returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	log.Printf("Request sent, status: %d, now reading response from SSE connection...", resp.StatusCode)
+	log.Debug("mcp", "action", "Request sent, now reading response from SSE connection", "status_code", resp.StatusCode)
 
 	// Read response from the original SSE connection
-	return c.readSSEResponseFromConnection(sseConn, "tools_list_1", 10*time.Second)
+	return c.readSSEResponseFromConnection(sseConn, "tools_list_1", c.timeout)
 }
 
 // readSSEResponseFromConnection reads JSON-RPC response from active SSE connection
@@ -566,7 +588,7 @@ func (c *Client) readSSEResponseFromConnection(sseConn *http.Response, expectedI
 
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
-			log.Printf("SSE response: %s", line)
+			log.Debug("mcp", "action", "SSE response", "line", line)
 
 			// Parse SSE format: "data: {...}"
 			if strings.HasPrefix(line, "data: ") {
@@ -597,7 +619,7 @@ func (c *Client) readSSEResponseFromConnection(sseConn *http.Response, expectedI
 										tools = append(tools, toolMap)
 									}
 								}
-								log.Printf("Successfully parsed %d tools from SSE response", len(tools))
+								log.Debug("mcp", "action", "Successfully parsed tools from SSE response", "count", len(tools))
 								done <- tools
 								return
 							}
