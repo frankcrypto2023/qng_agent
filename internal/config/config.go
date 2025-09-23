@@ -35,6 +35,7 @@ type LLMConfig struct {
 	DefaultModel    string  `json:"default_model"`
 	MaxTokens       int     `json:"max_tokens"`
 	Temperature     float64 `json:"temperature"`
+	Timeout         int     `json:"timeout"` // Request timeout in seconds
 }
 
 // MCPConfig contains MCP server configuration
@@ -69,6 +70,7 @@ func Load() (*Config, error) {
 			DefaultModel:    "gpt-4",
 			MaxTokens:       2048,
 			Temperature:     0.7,
+			Timeout:         120, // 2 minutes default timeout
 		},
 		MCP: MCPConfig{
 			DefaultServers: []MCPServerConfig{
@@ -82,7 +84,7 @@ func Load() (*Config, error) {
 	}
 
 	// Try to load from config file
-	if configFile := getEnv("CONFIG_FILE", ""); configFile != "" {
+	if configFile := getEnv("CONFIG_FILE", "./config.json"); configFile != "" {
 		if err := loadFromFile(cfg, configFile); err != nil {
 			return nil, err
 		}

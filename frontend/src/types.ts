@@ -30,6 +30,7 @@ export interface LLMProviderConfig {
   url: string;
   token: string;
   model_name: string;
+  timeout?: number;     // Request timeout in seconds
   app_name?: string;    // For OpenRouter X-Title header
   app_url?: string;     // For OpenRouter HTTP-Referer header
 }

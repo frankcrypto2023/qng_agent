@@ -1643,7 +1643,7 @@ CRITICAL INSTRUCTIONS:
 - Design tasks based on actual tool requirements, not predefined templates
 - Consider user's intent for result analysis (comparison, summarization, etc.)`, userMessage, mcpTools, web3Workflows)
 
-	log.Printf("Intent analysis prompt: %s", prompt)
+	// log.Printf("Intent analysis prompt: %s", prompt)
 	return prompt
 }
 

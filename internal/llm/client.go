@@ -8,28 +8,20 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"qng-agent/internal/harmony"
 	"qng-agent/internal/types"
-	"regexp"
 	"strings"
 	"time"
 )
 
+// Global harmony parser instance for efficiency
+var harmonyParser = harmony.NewHarmonyParser()
+
 // filterHarmonyMetadata filters out GPT-OSS Harmony format metadata from message content
-// Removes content between <|channel|> and <|end|> markers
+// Uses the new harmony parser for better accuracy and performance
 func filterHarmonyMetadata(content string) string {
-	// Pattern to match <|channel|>...<|end|> blocks
-	harmonyPattern := regexp.MustCompile(`(?s)<\|channel\|>.*?<\|end\|>`)
-
-	// Remove all harmony metadata blocks
-	filtered := harmonyPattern.ReplaceAllString(content, "")
-
-	// Clean up any extra whitespace that might be left
-	// Replace multiple consecutive newlines with single newline
-	newlinePattern := regexp.MustCompile(`\n\s*\n\s*\n`)
-	filtered = newlinePattern.ReplaceAllString(filtered, "\n\n")
-	filtered = strings.TrimSpace(filtered)
-
-	return filtered
+	log.Printf("Filtering harmony metadata: %s", content)
+	return harmonyParser.FilterMetadata(content)
 }
 
 // StreamBuffer handles buffering and filtering for streaming responses
@@ -137,6 +129,7 @@ type OpenAIClient struct {
 	model     string
 	maxTokens int
 	temp      float64
+	timeout   int // Request timeout in seconds
 }
 
 // OpenRouterClient implements Client for OpenRouter API
@@ -148,21 +141,23 @@ type OpenRouterClient struct {
 	temp      float64
 	appName   string
 	appURL    string
+	timeout   int // Request timeout in seconds
 }
 
 // NewOpenAIClient creates a new OpenAI client
-func NewOpenAIClient(baseURL, apiKey, model string, maxTokens int, temp float64) *OpenAIClient {
+func NewOpenAIClient(baseURL, apiKey, model string, maxTokens int, temp float64, timeout int) *OpenAIClient {
 	return &OpenAIClient{
 		baseURL:   strings.TrimSuffix(baseURL, "/"),
 		apiKey:    apiKey,
 		model:     model,
 		maxTokens: maxTokens,
 		temp:      temp,
+		timeout:   timeout,
 	}
 }
 
 // NewOpenRouterClient creates a new OpenRouter client
-func NewOpenRouterClient(baseURL, apiKey, model string, maxTokens int, temp float64, appName, appURL string) *OpenRouterClient {
+func NewOpenRouterClient(baseURL, apiKey, model string, maxTokens int, temp float64, appName, appURL string, timeout int) *OpenRouterClient {
 	return &OpenRouterClient{
 		baseURL:   strings.TrimSuffix(baseURL, "/"),
 		apiKey:    apiKey,
@@ -171,6 +166,7 @@ func NewOpenRouterClient(baseURL, apiKey, model string, maxTokens int, temp floa
 		temp:      temp,
 		appName:   appName,
 		appURL:    appURL,
+		timeout:   timeout,
 	}
 }
 
@@ -232,7 +228,7 @@ func (c *OpenAIClient) StreamCompletion(ctx context.Context, messages []types.Ch
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
@@ -306,7 +302,7 @@ func (c *OpenAIClient) GetCompletion(ctx context.Context, messages []types.ChatM
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
@@ -362,6 +358,12 @@ func (m *Manager) GetClient() Client {
 func (m *Manager) UpdateClientFromConfig(config types.LLMProviderConfig) {
 	var client Client
 
+	// Set default timeout if not specified
+	timeout := config.Timeout
+	if timeout <= 0 {
+		timeout = 120 // Default 2 minutes
+	}
+
 	switch config.Type {
 	case types.ProviderTypeOpenRouter:
 		client = NewOpenRouterClient(
@@ -372,6 +374,7 @@ func (m *Manager) UpdateClientFromConfig(config types.LLMProviderConfig) {
 			0.7,  // temperature
 			config.AppName,
 			config.AppURL,
+			timeout,
 		)
 	case types.ProviderTypeGroq:
 		// Groq uses OpenAI-compatible API
@@ -381,6 +384,7 @@ func (m *Manager) UpdateClientFromConfig(config types.LLMProviderConfig) {
 			config.ModelName,
 			2048, // maxTokens
 			0.7,  // temperature
+			timeout,
 		)
 	case types.ProviderTypeOpenAI, types.ProviderTypeCustom:
 		// OpenAI and custom providers use the same client
@@ -390,6 +394,7 @@ func (m *Manager) UpdateClientFromConfig(config types.LLMProviderConfig) {
 			config.ModelName,
 			2048, // maxTokens
 			0.7,  // temperature
+			timeout,
 		)
 	case types.ProviderTypeAnthropic:
 		// For now, treat Anthropic as OpenAI-compatible
@@ -400,6 +405,7 @@ func (m *Manager) UpdateClientFromConfig(config types.LLMProviderConfig) {
 			config.ModelName,
 			2048, // maxTokens
 			0.7,  // temperature
+			timeout,
 		)
 	default:
 		// Default to OpenAI client for backward compatibility
@@ -409,6 +415,7 @@ func (m *Manager) UpdateClientFromConfig(config types.LLMProviderConfig) {
 			config.ModelName,
 			2048, // maxTokens
 			0.7,  // temperature
+			timeout,
 		)
 	}
 
@@ -481,7 +488,7 @@ func (c *OpenRouterClient) StreamCompletion(ctx context.Context, messages []type
 		req.Header.Set("HTTP-Referer", c.appURL)
 	}
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
@@ -563,7 +570,7 @@ func (c *OpenRouterClient) GetCompletion(ctx context.Context, messages []types.C
 		req.Header.Set("HTTP-Referer", c.appURL)
 	}
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)

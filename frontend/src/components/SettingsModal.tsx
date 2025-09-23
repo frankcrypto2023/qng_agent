@@ -18,6 +18,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       url: '',
       token: '',
       model_name: '',
+      timeout: 120,
       app_name: '',
       app_url: ''
     }
@@ -239,6 +240,24 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       placeholder="Your API token"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blockchain-primary focus:border-transparent"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Request Timeout (seconds)
+                    </label>
+                    <input
+                      type="number"
+                      min="30"
+                      max="600"
+                      value={settings.llm_provider.timeout || 120}
+                      onChange={(e) => updateLLMProvider({ timeout: parseInt(e.target.value) || 120 })}
+                      placeholder="120"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blockchain-primary focus:border-transparent"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Timeout for LLM requests in seconds. Recommended: 30-60 for fast responses, 120-180 for complex tasks.
+                    </p>
                   </div>
 
                   {/* OpenRouter specific fields */}

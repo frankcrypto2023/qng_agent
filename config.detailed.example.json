@@ -1,0 +1,59 @@
+{
+  "_comment": "QNG Agent 配置文件示例 - 详细版本",
+  "_usage": "复制此文件为 config.json 并根据需要修改配置",
+  
+  "server": {
+    "_comment": "HTTP 服务器配置",
+    "port": "8081",
+    "host": "0.0.0.0",
+    "allowed_origins": [
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "https://yourdomain.com"
+    ],
+    "read_timeout": 30,
+    "write_timeout": 30,
+    "max_request_size": 1048576
+  },
+  
+  "database": {
+    "_comment": "数据库配置 - 目前支持 LevelDB",
+    "path": "./data/qng_agent.leveldb",
+    "type": "leveldb"
+  },
+  
+  "llm": {
+    "_comment": "LLM 默认配置 - 这些是默认值，可以在运行时通过 API 修改",
+    "default_provider": "openai",
+    "default_model": "gpt-4",
+    "max_tokens": 2048,
+    "temperature": 0.7,
+    "timeout": 120
+  },
+  
+  "mcp": {
+    "_comment": "MCP (Model Context Protocol) 服务器配置",
+    "default_servers": [
+      {
+        "name": "QNG Tools",
+        "url": "http://localhost:8080/sse",
+        "enabled": true
+      },
+      {
+        "name": "File System Tools",
+        "url": "http://localhost:8081/mcp/filesystem",
+        "enabled": false
+      },
+      {
+        "name": "Database Tools", 
+        "url": "http://localhost:8082/mcp/database",
+        "enabled": false
+      },
+      {
+        "name": "Web Search Tools",
+        "url": "http://localhost:8083/mcp/websearch",
+        "enabled": false
+      }
+    ]
+  }
+}

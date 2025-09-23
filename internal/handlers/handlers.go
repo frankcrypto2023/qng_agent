@@ -29,7 +29,7 @@ type Handler struct {
 // NewHandler creates a new handler
 func NewHandler(sessionManager *session.Manager, llmManager *llm.Manager, cfg *config.Config, storage storage.Storage) *Handler {
 	graphManager := graph.NewLLMGraphManager(llmManager.GetClient(), llmManager, cfg, storage)
-	
+
 	return &Handler{
 		sessionManager: sessionManager,
 		llmManager:     llmManager,
@@ -133,16 +133,16 @@ func (h *Handler) UpdateSession(c *gin.Context) {
 	}
 
 	sessionID := c.Param("id")
-	
+
 	var req struct {
 		Title string `json:"title"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	// Update session title
 	err := h.sessionManager.UpdateSessionTitle(userID, sessionID, req.Title)
 	if err != nil {
@@ -202,12 +202,19 @@ func (h *Handler) StreamChat(c *gin.Context) {
 	}
 
 	// Process through QNG Graph workflow
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	// Use configured timeout with a reasonable minimum
+	timeoutSeconds := h.config.LLM.Timeout
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 120 // Default 2 minutes if not configured
+	}
+	// Add some buffer for processing overhead
+	timeoutSeconds += 30
+	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(timeoutSeconds)*time.Second)
 	defer cancel()
 
 	// Create assistant message
 	assistantMessageID := uuid.New().String()
-	
+
 	// Send message ID first using standard SSE format
 	fmt.Fprintf(c.Writer, "data: %s\n\n", `{"message_id":"`+assistantMessageID+`"}`)
 	c.Writer.Flush()
@@ -224,7 +231,7 @@ func (h *Handler) StreamChat(c *gin.Context) {
 	for i, char := range response {
 		fmt.Fprintf(c.Writer, "data: %s\n\n", `{"content":"`+string(char)+`"}`)
 		c.Writer.Flush()
-		
+
 		// Add small delay for realistic streaming effect
 		if i%10 == 0 {
 			time.Sleep(50 * time.Millisecond)
@@ -245,7 +252,7 @@ func (h *Handler) StreamChat(c *gin.Context) {
 	// Save assistant message
 	assistantMessage := &types.ChatMessage{
 		ID:        assistantMessageID,
-		Role:      "assistant", 
+		Role:      "assistant",
 		Content:   response,
 		Timestamp: time.Now(),
 	}

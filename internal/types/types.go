@@ -47,6 +47,7 @@ type LLMProviderConfig struct {
 	URL       string          `json:"url"`
 	Token     string          `json:"token"`
 	ModelName string          `json:"model_name"`
+	Timeout   int             `json:"timeout,omitempty"` // Request timeout in seconds
 	// OpenRouter specific fields
 	AppName    string `json:"app_name,omitempty"`    // For X-Title header
 	AppURL     string `json:"app_url,omitempty"`     // For HTTP-Referer header
