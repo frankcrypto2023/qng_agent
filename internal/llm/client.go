@@ -9,9 +9,120 @@ import (
 	"log"
 	"net/http"
 	"qng-agent/internal/types"
+	"regexp"
 	"strings"
 	"time"
 )
+
+// filterHarmonyMetadata filters out GPT-OSS Harmony format metadata from message content
+// Removes content between <|channel|> and <|end|> markers
+func filterHarmonyMetadata(content string) string {
+	// Pattern to match <|channel|>...<|end|> blocks
+	harmonyPattern := regexp.MustCompile(`(?s)<\|channel\|>.*?<\|end\|>`)
+
+	// Remove all harmony metadata blocks
+	filtered := harmonyPattern.ReplaceAllString(content, "")
+
+	// Clean up any extra whitespace that might be left
+	// Replace multiple consecutive newlines with single newline
+	newlinePattern := regexp.MustCompile(`\n\s*\n\s*\n`)
+	filtered = newlinePattern.ReplaceAllString(filtered, "\n\n")
+	filtered = strings.TrimSpace(filtered)
+
+	return filtered
+}
+
+// StreamBuffer handles buffering and filtering for streaming responses
+type StreamBuffer struct {
+	buffer   strings.Builder
+	onChunk  func(string)
+	lastSent int
+}
+
+// NewStreamBuffer creates a new stream buffer
+func NewStreamBuffer(onChunk func(string)) *StreamBuffer {
+	return &StreamBuffer{
+		onChunk: onChunk,
+	}
+}
+
+// Add adds content to the buffer and processes it
+func (sb *StreamBuffer) Add(content string) {
+	sb.buffer.WriteString(content)
+	sb.processBuffer()
+}
+
+// Flush processes any remaining content in the buffer
+func (sb *StreamBuffer) Flush() {
+	if sb.buffer.Len() > sb.lastSent {
+		remaining := sb.buffer.String()[sb.lastSent:]
+		filtered := filterHarmonyMetadata(remaining)
+		if filtered != "" {
+			sb.onChunk(filtered)
+		}
+	}
+}
+
+// processBuffer processes the buffer content and sends filtered chunks
+func (sb *StreamBuffer) processBuffer() {
+	content := sb.buffer.String()
+
+	// Look for potential harmony markers in the buffer
+	// We need to be careful not to send partial harmony tags
+	harmonyStart := strings.LastIndex(content, "<|")
+	harmonyEnd := strings.LastIndex(content, "|>")
+
+	// If we have a potential harmony start but no end, keep buffering
+	if harmonyStart > harmonyEnd && harmonyStart >= 0 {
+		// Check if this looks like a harmony tag start
+		potentialTag := content[harmonyStart:]
+		if strings.Contains(potentialTag, "channel") || strings.Contains(potentialTag, "end") {
+			// Likely a harmony tag, don't send yet
+			return
+		}
+	}
+
+	// If we have a complete harmony tag, filter it out
+	if harmonyStart >= 0 && harmonyEnd >= 0 && harmonyEnd > harmonyStart {
+		// We have a complete tag, filter the content up to this point
+		contentToSend := content[:harmonyStart] + content[harmonyEnd+2:]
+		if len(contentToSend) > sb.lastSent {
+			newContent := contentToSend[sb.lastSent:]
+			filtered := filterHarmonyMetadata(newContent)
+			if filtered != "" {
+				sb.onChunk(filtered)
+			}
+			sb.lastSent = len(contentToSend)
+		}
+		return
+	}
+
+	// No harmony tags detected, send new content
+	if len(content) > sb.lastSent {
+		newContent := content[sb.lastSent:]
+		// Check if the new content contains harmony markers
+		if strings.Contains(newContent, "<|") || strings.Contains(newContent, "|>") {
+			// Contains potential harmony markers, be more conservative
+			// Only send content up to the first potential marker
+			markerPos := strings.Index(newContent, "<|")
+			if markerPos >= 0 {
+				safeContent := newContent[:markerPos]
+				if safeContent != "" {
+					sb.onChunk(safeContent)
+					sb.lastSent += len(safeContent)
+				}
+			} else {
+				// No markers, safe to send
+				sb.onChunk(newContent)
+				sb.lastSent = len(content)
+			}
+		} else {
+			// No markers, safe to send
+			sb.onChunk(newContent)
+			sb.lastSent = len(content)
+		}
+	}
+}
 
 // Client interface for LLM providers
 type Client interface {
@@ -133,8 +244,10 @@ func (c *OpenAIClient) StreamCompletion(ctx context.Context, messages []types.Ch
 		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Read streaming response
+	// Read streaming response with buffering for harmony filtering
 	decoder := json.NewDecoder(resp.Body)
+	buffer := NewStreamBuffer(onChunk)
+
 	for {
 		var response openAIResponse
 		if err := decoder.Decode(&response); err != nil {
@@ -147,7 +260,7 @@ func (c *OpenAIClient) StreamCompletion(ctx context.Context, messages []types.Ch
 		if len(response.Choices) > 0 {
 			choice := response.Choices[0]
 			if choice.Delta.Content != "" {
-				onChunk(choice.Delta.Content)
+				buffer.Add(choice.Delta.Content)
 			}
 			if choice.FinishReason == "stop" {
 				break
@@ -155,6 +268,8 @@ func (c *OpenAIClient) StreamCompletion(ctx context.Context, messages []types.Ch
 		}
 	}
 
+	// Flush any remaining buffered content
+	buffer.Flush()
 	onComplete()
 	return nil
 }
@@ -212,7 +327,8 @@ func (c *OpenAIClient) GetCompletion(ctx context.Context, messages []types.ChatM
 		return "", fmt.Errorf("no choices in response")
 	}
 
-	return response.Choices[0].Message.Content, nil
+	content := response.Choices[0].Message.Content
+	return filterHarmonyMetadata(content), nil
 }
 
 // Manager handles LLM client management
@@ -306,8 +422,11 @@ type DummyClient struct{}
 func (d *DummyClient) StreamCompletion(ctx context.Context, messages []types.ChatMessage, onChunk func(string), onComplete func()) error {
 	response := "Hello! I'm a QNG Intelligent Agent. Currently, no LLM provider is configured, so I'm running in demo mode. Please configure your LLM settings in the settings panel to enable full functionality."
 
+	// Filter harmony metadata before streaming
+	filteredResponse := filterHarmonyMetadata(response)
+
 	// Simulate streaming by sending chunks
-	for _, char := range response {
+	for _, char := range filteredResponse {
 		onChunk(string(char))
 		time.Sleep(50 * time.Millisecond) // Simulate typing speed
 	}
@@ -318,7 +437,8 @@ func (d *DummyClient) StreamCompletion(ctx context.Context, messages []types.Cha
 
 // GetCompletion implements Client interface with dummy responses
 func (d *DummyClient) GetCompletion(ctx context.Context, messages []types.ChatMessage) (string, error) {
-	return "Hello! I'm a QNG Intelligent Agent. Currently, no LLM provider is configured, so I'm running in demo mode. Please configure your LLM settings in the settings panel to enable full functionality.", nil
+	content := "Hello! I'm a QNG Intelligent Agent. Currently, no LLM provider is configured, so I'm running in demo mode. Please configure your LLM settings in the settings panel to enable full functionality."
+	return filterHarmonyMetadata(content), nil
 }
 
 // StreamCompletion streams completion from OpenRouter API
@@ -373,8 +493,10 @@ func (c *OpenRouterClient) StreamCompletion(ctx context.Context, messages []type
 		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Read streaming response
+	// Read streaming response with buffering for harmony filtering
 	decoder := json.NewDecoder(resp.Body)
+	buffer := NewStreamBuffer(onChunk)
+
 	for {
 		var response openAIResponse
 		if err := decoder.Decode(&response); err != nil {
@@ -387,7 +509,7 @@ func (c *OpenRouterClient) StreamCompletion(ctx context.Context, messages []type
 		if len(response.Choices) > 0 {
 			choice := response.Choices[0]
 			if choice.Delta.Content != "" {
-				onChunk(choice.Delta.Content)
+				buffer.Add(choice.Delta.Content)
 			}
 			if choice.FinishReason == "stop" {
 				break
@@ -395,6 +517,8 @@ func (c *OpenRouterClient) StreamCompletion(ctx context.Context, messages []type
 		}
 	}
 
+	// Flush any remaining buffered content
+	buffer.Flush()
 	onComplete()
 	return nil
 }
@@ -460,5 +584,6 @@ func (c *OpenRouterClient) GetCompletion(ctx context.Context, messages []types.C
 		return "", fmt.Errorf("no choices in response")
 	}
 
-	return response.Choices[0].Message.Content, nil
+	content := response.Choices[0].Message.Content
+	return filterHarmonyMetadata(content), nil
 }
