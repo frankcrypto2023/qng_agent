@@ -26,18 +26,8 @@
     "default_servers": [
       {
         "name": "QNG Tools",
-        "url": "http://localhost:8080/sse",
+        "url": "http://localhost:18131/mcp/sse",
         "enabled": true
-      },
-      {
-        "name": "File System Tools",
-        "url": "http://localhost:8081/mcp/filesystem",
-        "enabled": false
-      },
-      {
-        "name": "Database Tools",
-        "url": "http://localhost:8082/mcp/database",
-        "enabled": false
       }
     ],
     "timeout": 300

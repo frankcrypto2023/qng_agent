@@ -8,14 +8,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"qng-agent/internal/config"
 	"qng-agent/internal/types"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/Qitmeer/qng/log"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // Client represents an MCP client for communicating with MCP servers
@@ -415,7 +416,14 @@ func (c *Client) initMCPSession(ctx context.Context, sseURL string) (string, str
 
 	done := make(chan struct{})
 	var sessionID, messageEndpoint string
+	// get the sse http://localhost:8080
+	u, err := url.Parse(sseURL)
+	if err != nil {
+		panic(err)
+	}
 
+	// 拼接 scheme://host
+	base := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
 	go func() {
 		defer close(done)
 		for scanner.Scan() {
@@ -427,7 +435,7 @@ func (c *Client) initMCPSession(ctx context.Context, sseURL string) (string, str
 
 				// Look for message endpoint URL
 				if strings.Contains(data, "/message?sessionId=") {
-					messageEndpoint = data
+					messageEndpoint = base + data
 					// Extract session ID from URL
 					if idx := strings.Index(data, "sessionId="); idx != -1 {
 						sessionID = data[idx+10:] // "sessionId=" is 10 chars
