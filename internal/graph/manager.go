@@ -360,17 +360,15 @@ WORKFLOW GENERATION RULES:
 - RPC URLs should be extracted from the user message
 - Tool names should match available MCP tools exactly
 
-PARAMETER MAPPING RULES:
-- For qng_get_stateroot tool: use "block_order" and "rpc_url" parameters
-- For qng_get_block_by_order tool: use "block_order" and "rpc_url" parameters
-- For qng_get_block_count tool: only "rpc_url" parameter needed
-- Always use "rpc_url" for RPC endpoint (not "rpc")
-- Use "block_order" for block numbers (not "order")
+COMMON PARAMETER PATTERNS:
+- Block numbers: Should be integers (extract from "order", "height", "block" keywords, use "parameter-1" parameter)
+- Addresses: Should be valid blockchain addresses
+- Token symbols: Should be uppercase (e.g., "MEER", "USDT")
 
-COMMON PATTERNS:
-- Multiple RPC queries: parallel execution, compare aggregation
-- Sequential operations: sequential execution, merge aggregation
-- Data analysis: mixed execution, summarize aggregation
+PARAMETER MAPPING RULES:
+- For qng_getStateRoot tool: use "parameter-1" parameters
+- For qng_getBlockByOrder tool: use "parameter-1" parameters
+- For qng_getBlockCount tool: no need parameter needed
 
 Return ONLY a JSON object with the complete sub-workflow structure:
 {
