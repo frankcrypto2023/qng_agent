@@ -75,6 +75,10 @@ func New(cfg *config.Config) *Server {
 	}
 
 	server.setupRoutes()
+	
+	// Start WebSocket hub in a goroutine
+	go server.handler.GetWebSocketHub().Run()
+	
 	return server
 }
 
@@ -98,6 +102,12 @@ func (s *Server) setupRoutes() {
 	// Settings
 	api.GET("/settings", s.handler.GetSettings)
 	api.PUT("/settings", s.handler.UpdateSettings)
+	
+	// Workflow management
+	api.POST("/workflow/initiate", s.handler.InitiateWorkflow)
+	
+	// WebSocket for workflow status updates
+	api.GET("/ws/workflow/status", s.handler.ServeWebSocket)
 
 	// Serve static files in development
 	s.engine.Static("/static", "./frontend/dist")

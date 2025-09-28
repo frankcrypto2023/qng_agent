@@ -81,3 +81,50 @@ export interface WorkflowConfig {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
 }
+
+// 工作流可视化相关类型
+export type NodeStatus = 'Pending' | 'Executing' | 'Success' | 'Failure'
+
+export interface WorkflowVisualizationNode {
+  id: string
+  label: string
+  type: string
+  status: NodeStatus
+  data?: any
+  error?: string
+}
+
+export interface WorkflowVisualizationEdge {
+  source: string
+  target: string
+}
+
+export interface WorkflowVisualizationGraph {
+  nodes: WorkflowVisualizationNode[]
+  edges: WorkflowVisualizationEdge[]
+}
+
+export interface WorkflowInitiateRequest {
+  message: string
+  session_id: string
+}
+
+export interface WorkflowInitiateResponse {
+  workflowId: string
+  graph: WorkflowVisualizationGraph
+}
+
+export interface WorkflowStatusUpdate {
+  workflowId: string
+  nodeId: string
+  status: NodeStatus
+  data?: any
+  error?: string
+}
+
+export interface WorkflowComplete {
+  workflowId: string
+  success: boolean
+  summary?: string
+  totalTime?: number
+}

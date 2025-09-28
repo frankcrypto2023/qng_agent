@@ -435,7 +435,11 @@ func (c *Client) initMCPSession(ctx context.Context, sseURL string) (string, str
 
 				// Look for message endpoint URL
 				if strings.Contains(data, "/message?sessionId=") {
-					messageEndpoint = base + data
+					if !strings.Contains(data, "http") {
+						messageEndpoint = base + data
+					} else {
+						messageEndpoint = data
+					}
 					// Extract session ID from URL
 					if idx := strings.Index(data, "sessionId="); idx != -1 {
 						sessionID = data[idx+10:] // "sessionId=" is 10 chars

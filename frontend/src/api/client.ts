@@ -3,7 +3,9 @@ import {
   SendMessageRequest,
   CreateSessionRequest,
   CreateSessionResponse,
-  AppSettings
+  AppSettings,
+  WorkflowInitiateRequest,
+  WorkflowInitiateResponse
 } from '../types'
 
 const API_BASE_URL = '/api'
@@ -164,6 +166,23 @@ class APIClient {
     if (!response.ok) {
       throw new Error('Failed to update settings')
     }
+  }
+
+  // 工作流相关API
+  async initiateWorkflow(request: WorkflowInitiateRequest): Promise<WorkflowInitiateResponse> {
+    const response = await fetch(`${API_BASE_URL}/workflow/initiate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    })
+    
+    if (!response.ok) {
+      throw new Error('Failed to initiate workflow')
+    }
+    
+    return response.json()
   }
 
   // Helper methods for transforming API responses

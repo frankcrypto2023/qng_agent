@@ -178,3 +178,64 @@ type SubWorkflowResult struct {
 	Summary      string       `json:"summary,omitempty"`
 	TotalTime    time.Duration `json:"total_time"`
 }
+
+// 工作流可视化相关类型
+type NodeStatus string
+
+const (
+	NodeStatusPending   NodeStatus = "Pending"
+	NodeStatusExecuting NodeStatus = "Executing"
+	NodeStatusSuccess   NodeStatus = "Success"
+	NodeStatusFailure   NodeStatus = "Failure"
+)
+
+// WorkflowVisualizationNode represents a node in the workflow visualization
+type WorkflowVisualizationNode struct {
+	ID     string     `json:"id"`
+	Label  string     `json:"label"`
+	Type   string     `json:"type"`
+	Status NodeStatus `json:"status"`
+	Data   interface{} `json:"data,omitempty"`
+	Error  string     `json:"error,omitempty"`
+}
+
+// WorkflowVisualizationEdge represents an edge in the workflow visualization
+type WorkflowVisualizationEdge struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+}
+
+// WorkflowVisualizationGraph represents the complete workflow graph for visualization
+type WorkflowVisualizationGraph struct {
+	Nodes []WorkflowVisualizationNode `json:"nodes"`
+	Edges []WorkflowVisualizationEdge `json:"edges"`
+}
+
+// WorkflowInitiateRequest represents a request to initiate a workflow
+type WorkflowInitiateRequest struct {
+	Message   string `json:"message" binding:"required"`
+	SessionID string `json:"session_id" binding:"required"`
+}
+
+// WorkflowInitiateResponse represents the response when initiating a workflow
+type WorkflowInitiateResponse struct {
+	WorkflowID string                      `json:"workflowId"`
+	Graph      WorkflowVisualizationGraph  `json:"graph"`
+}
+
+// WorkflowStatusUpdate represents a node status update
+type WorkflowStatusUpdate struct {
+	WorkflowID string     `json:"workflowId"`
+	NodeID     string     `json:"nodeId"`
+	Status     NodeStatus `json:"status"`
+	Data       interface{} `json:"data,omitempty"`
+	Error      string     `json:"error,omitempty"`
+}
+
+// WorkflowComplete represents workflow completion
+type WorkflowComplete struct {
+	WorkflowID string `json:"workflowId"`
+	Success    bool   `json:"success"`
+	Summary    string `json:"summary,omitempty"`
+	TotalTime  int64  `json:"totalTime,omitempty"` // in milliseconds
+}

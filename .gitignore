@@ -10,3 +10,4 @@ test_files
 *.log
 *.txt
 frontend/dist
+qng_agent

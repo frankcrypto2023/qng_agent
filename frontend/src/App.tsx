@@ -4,9 +4,11 @@ import { Sidebar } from './components/Sidebar'
 import { ChatMessage } from './components/ChatMessage'
 import { ChatInput } from './components/ChatInput'
 import { SettingsModal } from './components/SettingsModal'
+import { WorkflowVisualization } from './components/WorkflowVisualization'
 import { apiClient } from './api/client'
-import { ChatSession, ChatMessage as ChatMessageType } from './types'
+import { ChatSession, ChatMessage as ChatMessageType, WorkflowVisualizationGraph } from './types'
 import { generateId } from './utils'
+import { workflowWebSocket, WorkflowStatusUpdate } from './services/WorkflowWebSocket'
 
 function App() {
   // State management
@@ -17,6 +19,42 @@ function App() {
   const [streamingMessage, setStreamingMessage] = useState<string>('')
   const [isStreaming, setIsStreaming] = useState(false)
   
+  // 工作流可视化状态
+  const [workflowGraph, setWorkflowGraph] = useState<WorkflowVisualizationGraph | null>(null)
+  const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(null)
+  const [showWorkflow, setShowWorkflow] = useState(false)
+
+  // 更新工作流节点状态
+  const updateWorkflowNodeStatus = (update: WorkflowStatusUpdate) => {
+    console.log('Updating workflow node status:', update)
+    console.log('Current workflow graph before update:', workflowGraph)
+    
+    setWorkflowGraph(prevGraph => {
+      if (!prevGraph) {
+        console.log('No previous graph to update')
+        return prevGraph
+      }
+      
+      const updatedGraph = {
+        ...prevGraph,
+        nodes: prevGraph.nodes.map(node => {
+          if (node.id === update.nodeId) {
+            console.log(`Updating node ${node.id} from ${node.status} to ${update.status}`)
+            return {
+              ...node,
+              status: update.status,
+              error: update.error
+            }
+          }
+          return node
+        })
+      }
+      
+      console.log('Updated workflow graph:', updatedGraph)
+      return updatedGraph
+    })
+  }
+  
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -24,6 +62,39 @@ function App() {
   useEffect(() => {
     loadSessions()
   }, [])
+
+  // 初始化WebSocket连接
+  useEffect(() => {
+    const initWebSocket = async () => {
+      try {
+        await workflowWebSocket.connect()
+        
+        // 监听工作流状态更新
+        workflowWebSocket.addEventListener('NODE_STATUS_UPDATE', (data: WorkflowStatusUpdate) => {
+          console.log('Node status update received:', data)
+          updateWorkflowNodeStatus(data)
+        })
+        
+        // 监听工作流完成
+        workflowWebSocket.addEventListener('WORKFLOW_COMPLETE', (data: any) => {
+          console.log('Workflow complete received:', data)
+          // 保持工作流面板显示，不自动隐藏
+          // setShowWorkflow(false)
+        })
+        
+        console.log('WebSocket event listeners added')
+      } catch (error) {
+        console.error('Failed to connect WebSocket:', error)
+      }
+    }
+
+    initWebSocket()
+
+    return () => {
+      workflowWebSocket.disconnect()
+    }
+  }, [])
+
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -105,6 +176,36 @@ function App() {
     setIsStreaming(true)
     setStreamingMessage('')
 
+    // 检查是否需要启动工作流可视化
+    const shouldInitiateWorkflow = checkIfWorkflowNeeded(content)
+    console.log('Should initiate workflow:', shouldInitiateWorkflow)
+    
+    if (shouldInitiateWorkflow) {
+      try {
+        console.log('Attempting to initiate workflow...')
+        // 初始化工作流
+        const workflowResponse = await apiClient.initiateWorkflow({
+          message: content,
+          session_id: currentSession.id
+        })
+        
+        console.log('Workflow response received:', workflowResponse)
+        
+        setCurrentWorkflowId(workflowResponse.workflowId)
+        setWorkflowGraph(workflowResponse.graph)
+        setShowWorkflow(true)
+        
+        console.log('Workflow state updated:', {
+          workflowId: workflowResponse.workflowId,
+          graph: workflowResponse.graph,
+          showWorkflow: true
+        })
+      } catch (error) {
+        console.error('Failed to initiate workflow:', error)
+        // 继续正常流程，不显示工作流
+      }
+    }
+
     // Use a ref to track the accumulated streaming content
     let accumulatedContent = ''
 
@@ -169,6 +270,51 @@ function App() {
     )
   }
 
+  // 检查是否需要启动工作流可视化
+  const checkIfWorkflowNeeded = (message: string): boolean => {
+    const workflowKeywords = [
+      '查询', '获取', '调用', '执行', '分析', '比较', '统计',
+      'query', 'get', 'call', 'execute', 'analyze', 'compare', 'statistics',
+      'rpc', 'api', 'block', 'transaction', 'balance', 'state', 'stateroot'
+    ]
+    
+    const shouldTrigger = workflowKeywords.some(keyword => 
+      message.toLowerCase().includes(keyword.toLowerCase())
+    )
+    
+    console.log('Workflow trigger check:', {
+      message,
+      shouldTrigger,
+      keywords: workflowKeywords
+    })
+    
+    return shouldTrigger
+  }
+
+  // 测试函数：强制显示工作流
+  const testShowWorkflow = () => {
+    const testGraph = {
+      nodes: [
+        { id: 'node-1', label: '意图分析', type: 'IntentAnalysis', status: 'Pending' as const },
+        { id: 'node-2', label: '查询最新区块数量', type: 'APICall', status: 'Pending' as const },
+        { id: 'node-3', label: '提取区块号参数', type: 'LLMParameterExtraction', status: 'Pending' as const },
+        { id: 'node-4', label: '查询 StateRoot 信息', type: 'APICall', status: 'Pending' as const },
+        { id: 'node-5', label: '格式化最终结果', type: 'LLMBeautify', status: 'Pending' as const }
+      ],
+      edges: [
+        { source: 'node-1', target: 'node-2' },
+        { source: 'node-2', target: 'node-3' },
+        { source: 'node-3', target: 'node-4' },
+        { source: 'node-4', target: 'node-5' }
+      ]
+    }
+    
+    setCurrentWorkflowId('test-wf-123')
+    setWorkflowGraph(testGraph)
+    setShowWorkflow(true)
+    console.log('Test workflow displayed')
+  }
+
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
@@ -183,7 +329,7 @@ function App() {
       />
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+      <div className={`flex-1 flex flex-col ${showWorkflow ? 'mr-[500px]' : ''}`}>
         {currentSession ? (
           <>
             {/* Messages */}
@@ -240,11 +386,22 @@ function App() {
             </div>
 
             {/* Chat Input */}
-            <ChatInput
-              onSendMessage={handleSendMessage}
-              disabled={isLoading}
-              isLoading={isStreaming}
-            />
+            <div className="p-4 border-t border-gray-200">
+              <div className="flex items-center space-x-2 mb-2">
+                <button
+                  onClick={testShowWorkflow}
+                  className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                >
+                  测试显示工作流
+                </button>
+                <span className="text-xs text-gray-500">点击此按钮测试工作流面板显示</span>
+              </div>
+              <ChatInput
+                onSendMessage={handleSendMessage}
+                disabled={isLoading}
+                isLoading={isStreaming}
+              />
+            </div>
           </>
         ) : (
           // No session selected
@@ -272,6 +429,24 @@ function App() {
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+      />
+
+      {/* Workflow Visualization */}
+      <WorkflowVisualization
+        workflowId={currentWorkflowId || undefined}
+        graph={workflowGraph || undefined}
+        isVisible={showWorkflow}
+        onNodeClick={(node) => {
+          console.log('Node clicked:', node)
+          if (node.error) {
+            alert(`节点错误: ${node.error}`)
+          }
+        }}
+        onClose={() => {
+          setShowWorkflow(false)
+          setWorkflowGraph(null)
+          setCurrentWorkflowId(null)
+        }}
       />
     </div>
   )
