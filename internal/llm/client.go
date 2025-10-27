@@ -121,6 +121,7 @@ func (sb *StreamBuffer) processBuffer() {
 type Client interface {
 	StreamCompletion(ctx context.Context, messages []types.ChatMessage, onChunk func(string), onComplete func()) error
 	GetCompletion(ctx context.Context, messages []types.ChatMessage) (string, error)
+	GetCompletionWithTools(ctx context.Context, messages []map[string]interface{}, tools []types.Tool) (*types.ChatMessage, error)
 }
 
 // OpenAIClient implements Client for OpenAI-compatible APIs
@@ -229,7 +230,17 @@ func (c *OpenAIClient) StreamCompletion(ctx context.Context, messages []types.Ch
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second}
+	// Create HTTP client with retry and better error handling
+	client := &http.Client{
+		Timeout: time.Duration(c.timeout) * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
 	log.Debug("llm", "action", "StreamCompletion HTTP client created", "timeout_seconds", c.timeout)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -296,6 +307,13 @@ func (c *OpenAIClient) GetCompletion(ctx context.Context, messages []types.ChatM
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	log.Debug("llm", "action", "OpenAI GetCompletion Request",
+		"url", c.baseURL+"/chat/completions",
+		"model", c.model,
+		"max_tokens", c.maxTokens,
+		"temperature", c.temp,
+		"request_size", len(jsonData))
+
 	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
@@ -304,17 +322,89 @@ func (c *OpenAIClient) GetCompletion(ctx context.Context, messages []types.ChatM
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second}
+	// Safely truncate API key for logging
+	keyPrefix := c.apiKey
+	if len(keyPrefix) > 10 {
+		keyPrefix = keyPrefix[:10]
+	}
+
+	log.Debug("llm", "action", "OpenAI Request Headers",
+		"content_type", req.Header.Get("Content-Type"),
+		"authorization", "Bearer "+keyPrefix+"...")
+
+	// Create HTTP client with retry and better error handling
+	client := &http.Client{
+		Timeout: time.Duration(c.timeout) * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
 	log.Debug("llm", "action", "GetCompletion HTTP client created", "timeout_seconds", c.timeout)
-	resp, err := client.Do(req)
+
+	log.Debug("llm", "action", "Sending HTTP request",
+		"method", req.Method,
+		"url", req.URL.String(),
+		"timeout", c.timeout)
+
+	// Retry mechanism for network issues
+	var resp *http.Response
+	var err error
+	maxRetries := 3
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		log.Debug("llm", "action", "HTTP request attempt", "attempt", attempt, "max_retries", maxRetries)
+
+		resp, err = client.Do(req)
+		if err == nil {
+			break // Success
+		}
+
+		log.Debug("llm", "action", "HTTP request failed", "attempt", attempt, "error", err.Error())
+
+		if attempt < maxRetries {
+			// Wait before retry (exponential backoff)
+			waitTime := time.Duration(attempt) * time.Second
+			log.Debug("llm", "action", "Retrying after delay", "wait_seconds", waitTime.Seconds())
+			time.Sleep(waitTime)
+
+			// Recreate request body for retry
+			req.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+		}
+	}
+
 	if err != nil {
-		return "", fmt.Errorf("failed to send request: %w", err)
+		log.Debug("llm", "action", "HTTP request failed after all retries", "error", err.Error())
+		return "", fmt.Errorf("failed to send request after %d attempts: %w", maxRetries, err)
 	}
 	defer resp.Body.Close()
 
+	log.Debug("llm", "action", "HTTP response received",
+		"status_code", resp.StatusCode,
+		"status", resp.Status,
+		"content_length", resp.ContentLength,
+		"headers", fmt.Sprintf("%v", resp.Header))
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		errorMsg := fmt.Sprintf("API request failed with status %d: %s", resp.StatusCode, string(body))
+
+		// Provide more specific error messages for common status codes
+		switch resp.StatusCode {
+		case 401:
+			errorMsg += "\n\nPossible solutions:\n- Check if your API key is correct\n- Ensure your API key has proper permissions\n- Verify the API key format (should start with 'sk-' for OpenAI)"
+		case 403:
+			errorMsg += "\n\nPossible solutions:\n- Check if your API key has sufficient permissions\n- Verify your account has enough credits/quota\n- Ensure the API endpoint URL is correct"
+		case 429:
+			errorMsg += "\n\nPossible solutions:\n- You have exceeded the rate limit\n- Wait a moment and try again\n- Consider upgrading your API plan"
+		case 500, 502, 503, 504:
+			errorMsg += "\n\nPossible solutions:\n- The API service is temporarily unavailable\n- Try again in a few moments\n- Check the API provider's status page"
+		}
+
+		return "", fmt.Errorf(errorMsg)
 	}
 
 	var response openAIResponse
@@ -328,6 +418,314 @@ func (c *OpenAIClient) GetCompletion(ctx context.Context, messages []types.ChatM
 
 	content := response.Choices[0].Message.Content
 	return filterHarmonyMetadata(content), nil
+}
+
+// GetCompletionWithTools gets a completion with function calling support for OpenRouter
+func (c *OpenRouterClient) GetCompletionWithTools(ctx context.Context, messages []map[string]interface{}, tools []types.Tool) (*types.ChatMessage, error) {
+	// Convert tools to OpenAI format
+	apiTools := make([]map[string]interface{}, len(tools))
+	for i, tool := range tools {
+		apiTools[i] = map[string]interface{}{
+			"type": "function",
+			"function": map[string]interface{}{
+				"name":        tool.Function.Name,
+				"description": tool.Function.Description,
+				"parameters":  tool.Function.Parameters,
+			},
+		}
+	}
+
+	request := map[string]interface{}{
+		"model":       c.model,
+		"messages":    messages,
+		"max_tokens":  c.maxTokens,
+		"temperature": c.temp,
+		"tools":       apiTools,
+		"tool_choice": "auto",
+	}
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	// Add OpenRouter specific headers
+	if c.appName != "" {
+		req.Header.Set("X-Title", c.appName)
+	}
+	if c.appURL != "" {
+		req.Header.Set("HTTP-Referer", c.appURL)
+	}
+
+	// Create HTTP client with retry and better error handling
+	client := &http.Client{
+		Timeout: time.Duration(c.timeout) * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var response map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	choices, ok := response["choices"].([]interface{})
+	if !ok || len(choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
+	}
+
+	choice, ok := choices[0].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid choice format")
+	}
+
+	message, ok := choice["message"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid message format")
+	}
+
+	content, _ := message["content"].(string)
+	toolCalls, _ := message["tool_calls"].([]interface{})
+
+	result := &types.ChatMessage{
+		Role:    "assistant",
+		Content: content,
+	}
+
+	// Convert tool calls if present
+	if toolCalls != nil {
+		for _, tc := range toolCalls {
+			toolCallMap, ok := tc.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			toolCall := types.ToolCall{
+				ID:   toolCallMap["id"].(string),
+				Type: toolCallMap["type"].(string),
+			}
+
+			function, ok := toolCallMap["function"].(map[string]interface{})
+			if ok {
+				toolCall.Function = types.FunctionCall{
+					Name:      function["name"].(string),
+					Arguments: function["arguments"].(map[string]interface{}),
+				}
+			}
+
+			result.ToolCalls = append(result.ToolCalls, toolCall)
+		}
+	}
+
+	return result, nil
+}
+
+// GetCompletionWithTools gets a completion with function calling support
+func (c *OpenAIClient) GetCompletionWithTools(ctx context.Context, messages []map[string]interface{}, tools []types.Tool) (*types.ChatMessage, error) {
+	// Convert tools to OpenAI format
+	apiTools := make([]map[string]interface{}, len(tools))
+	for i, tool := range tools {
+		apiTools[i] = map[string]interface{}{
+			"type": "function",
+			"function": map[string]interface{}{
+				"name":        tool.Function.Name,
+				"description": tool.Function.Description,
+				"parameters":  tool.Function.Parameters,
+			},
+		}
+	}
+
+	request := map[string]interface{}{
+		"model":       c.model,
+		"messages":    messages,
+		"max_tokens":  c.maxTokens,
+		"temperature": c.temp,
+		"tools":       apiTools,
+		"tool_choice": "auto",
+	}
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	log.Debug("llm", "action", "OpenAI GetCompletionWithTools Request",
+		"url", c.baseURL+"/chat/completions",
+		"model", c.model,
+		"max_tokens", c.maxTokens,
+		"temperature", c.temp,
+		"tools_count", len(tools),
+		"request_size", len(jsonData))
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	// Safely truncate API key for logging
+	keyPrefix := c.apiKey
+	if len(keyPrefix) > 10 {
+		keyPrefix = keyPrefix[:10]
+	}
+
+	log.Debug("llm", "action", "OpenAI Tools Request Headers",
+		"content_type", req.Header.Get("Content-Type"),
+		"authorization", "Bearer "+keyPrefix+"...")
+
+	// Create HTTP client with retry and better error handling
+	client := &http.Client{
+		Timeout: time.Duration(c.timeout) * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
+
+	log.Debug("llm", "action", "Sending Tools HTTP request",
+		"method", req.Method,
+		"url", req.URL.String(),
+		"timeout", c.timeout)
+
+	// Retry mechanism for network issues
+	var resp *http.Response
+	var err error
+	maxRetries := 3
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		log.Debug("llm", "action", "Tools HTTP request attempt", "attempt", attempt, "max_retries", maxRetries)
+
+		resp, err = client.Do(req)
+		if err == nil {
+			break // Success
+		}
+
+		log.Debug("llm", "action", "Tools HTTP request failed", "attempt", attempt, "error", err.Error())
+
+		if attempt < maxRetries {
+			// Wait before retry (exponential backoff)
+			waitTime := time.Duration(attempt) * time.Second
+			log.Debug("llm", "action", "Retrying Tools request after delay", "wait_seconds", waitTime.Seconds())
+			time.Sleep(waitTime)
+
+			// Recreate request body for retry
+			req.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+		}
+	}
+
+	if err != nil {
+		log.Debug("llm", "action", "Tools HTTP request failed after all retries", "error", err.Error())
+		return nil, fmt.Errorf("failed to send request after %d attempts: %w", maxRetries, err)
+	}
+	defer resp.Body.Close()
+
+	log.Debug("llm", "action", "Tools HTTP response received",
+		"status_code", resp.StatusCode,
+		"status", resp.Status,
+		"content_length", resp.ContentLength,
+		"headers", fmt.Sprintf("%v", resp.Header))
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		errorMsg := fmt.Sprintf("API request failed with status %d: %s", resp.StatusCode, string(body))
+
+		// Provide more specific error messages for common status codes
+		switch resp.StatusCode {
+		case 401:
+			errorMsg += "\n\nPossible solutions:\n- Check if your API key is correct\n- Ensure your API key has proper permissions\n- Verify the API key format (should start with 'sk-' for OpenAI)"
+		case 403:
+			errorMsg += "\n\nPossible solutions:\n- Check if your API key has sufficient permissions\n- Verify your account has enough credits/quota\n- Ensure the API endpoint URL is correct"
+		case 429:
+			errorMsg += "\n\nPossible solutions:\n- You have exceeded the rate limit\n- Wait a moment and try again\n- Consider upgrading your API plan"
+		case 500, 502, 503, 504:
+			errorMsg += "\n\nPossible solutions:\n- The API service is temporarily unavailable\n- Try again in a few moments\n- Check the API provider's status page"
+		}
+
+		return nil, fmt.Errorf(errorMsg)
+	}
+
+	var response map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	choices, ok := response["choices"].([]interface{})
+	if !ok || len(choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
+	}
+
+	choice, ok := choices[0].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid choice format")
+	}
+
+	message, ok := choice["message"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid message format")
+	}
+
+	content, _ := message["content"].(string)
+	toolCalls, _ := message["tool_calls"].([]interface{})
+
+	result := &types.ChatMessage{
+		Role:    "assistant",
+		Content: content,
+	}
+
+	// Convert tool calls if present
+	if toolCalls != nil {
+		for _, tc := range toolCalls {
+			toolCallMap, ok := tc.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			toolCall := types.ToolCall{
+				ID:   toolCallMap["id"].(string),
+				Type: toolCallMap["type"].(string),
+			}
+
+			function, ok := toolCallMap["function"].(map[string]interface{})
+			if ok {
+				toolCall.Function = types.FunctionCall{
+					Name:      function["name"].(string),
+					Arguments: function["arguments"].(map[string]interface{}),
+				}
+			}
+
+			result.ToolCalls = append(result.ToolCalls, toolCall)
+		}
+	}
+
+	return result, nil
 }
 
 // Manager handles LLM client management
@@ -454,6 +852,14 @@ func (d *DummyClient) GetCompletion(ctx context.Context, messages []types.ChatMe
 	return filterHarmonyMetadata(content), nil
 }
 
+// GetCompletionWithTools implements Client interface with dummy responses
+func (d *DummyClient) GetCompletionWithTools(ctx context.Context, messages []map[string]interface{}, tools []types.Tool) (*types.ChatMessage, error) {
+	return &types.ChatMessage{
+		Role:    "assistant",
+		Content: "Hello! I'm a QNG Intelligent Agent. Currently, no LLM provider is configured, so I'm running in demo mode. Please configure your LLM settings in the settings panel to enable full functionality.",
+	}, nil
+}
+
 // StreamCompletion streams completion from OpenRouter API
 func (c *OpenRouterClient) StreamCompletion(ctx context.Context, messages []types.ChatMessage, onChunk func(string), onComplete func()) error {
 	// Convert messages to OpenAI format
@@ -494,7 +900,17 @@ func (c *OpenRouterClient) StreamCompletion(ctx context.Context, messages []type
 		req.Header.Set("HTTP-Referer", c.appURL)
 	}
 
-	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second}
+	// Create HTTP client with retry and better error handling
+	client := &http.Client{
+		Timeout: time.Duration(c.timeout) * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
 	log.Debug("llm", "action", "OpenRouter StreamCompletion HTTP client created", "timeout_seconds", c.timeout)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -560,7 +976,14 @@ func (c *OpenRouterClient) GetCompletion(ctx context.Context, messages []types.C
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
-	log.Debug("llm", "action", "GetCompletion Request", "url", c.baseURL+"/chat/completions", "data", string(jsonData))
+
+	log.Debug("llm", "action", "OpenRouter GetCompletion Request",
+		"url", c.baseURL+"/chat/completions",
+		"model", c.model,
+		"max_tokens", c.maxTokens,
+		"temperature", c.temp,
+		"request_size", len(jsonData))
+
 	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
@@ -568,6 +991,16 @@ func (c *OpenRouterClient) GetCompletion(ctx context.Context, messages []types.C
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	// Safely truncate API key for logging
+	keyPrefix := c.apiKey
+	if len(keyPrefix) > 10 {
+		keyPrefix = keyPrefix[:10]
+	}
+
+	log.Debug("llm", "action", "OpenRouter Request Headers",
+		"content_type", req.Header.Get("Content-Type"),
+		"authorization", "Bearer "+keyPrefix+"...")
 
 	// Add OpenRouter specific headers
 	if c.appName != "" {
@@ -577,13 +1010,61 @@ func (c *OpenRouterClient) GetCompletion(ctx context.Context, messages []types.C
 		req.Header.Set("HTTP-Referer", c.appURL)
 	}
 
-	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second}
+	// Create HTTP client with retry and better error handling
+	client := &http.Client{
+		Timeout: time.Duration(c.timeout) * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
 	log.Debug("llm", "action", "OpenRouter GetCompletion HTTP client created", "timeout_seconds", c.timeout)
-	resp, err := client.Do(req)
+
+	log.Debug("llm", "action", "Sending OpenRouter HTTP request",
+		"method", req.Method,
+		"url", req.URL.String(),
+		"timeout", c.timeout)
+
+	// Retry mechanism for network issues
+	var resp *http.Response
+	var err error
+	maxRetries := 3
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		log.Debug("llm", "action", "OpenRouter HTTP request attempt", "attempt", attempt, "max_retries", maxRetries)
+
+		resp, err = client.Do(req)
+		if err == nil {
+			break // Success
+		}
+
+		log.Debug("llm", "action", "OpenRouter HTTP request failed", "attempt", attempt, "error", err.Error())
+
+		if attempt < maxRetries {
+			// Wait before retry (exponential backoff)
+			waitTime := time.Duration(attempt) * time.Second
+			log.Debug("llm", "action", "Retrying OpenRouter request after delay", "wait_seconds", waitTime.Seconds())
+			time.Sleep(waitTime)
+
+			// Recreate request body for retry
+			req.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+		}
+	}
+
 	if err != nil {
-		return "", fmt.Errorf("failed to send request: %w", err)
+		log.Debug("llm", "action", "OpenRouter HTTP request failed after all retries", "error", err.Error())
+		return "", fmt.Errorf("failed to send request after %d attempts: %w", maxRetries, err)
 	}
 	defer resp.Body.Close()
+
+	log.Debug("llm", "action", "OpenRouter HTTP response received",
+		"status_code", resp.StatusCode,
+		"status", resp.Status,
+		"content_length", resp.ContentLength,
+		"headers", fmt.Sprintf("%v", resp.Header))
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

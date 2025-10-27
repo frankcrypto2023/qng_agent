@@ -53,6 +53,105 @@ func NewLLMGraphManager(llmClient llm.Client, llmManager *llm.Manager, cfg *conf
 	}
 }
 
+// ProcessUserMessageWithFunctionCall processes a user message using standard function call protocol
+func (m *LLMGraphManager) ProcessUserMessageWithFunctionCall(ctx context.Context, userID, userMessage string, history []types.ChatMessage) (string, bool, error) {
+	// Update LLM client and MCP client with user-specific configuration if available
+	if userID != "" {
+		if settings, err := m.getUserSettings(userID); err == nil {
+			// Update LLM configuration if available
+			if settings.LLMProvider.URL != "" {
+				log.Debug("graph", "action", "Updated LLM configuration for user", "user_id", userID, "provider", settings.LLMProvider)
+				// Update LLM manager with user's configuration
+				m.llmManager.UpdateClientFromConfig(settings.LLMProvider)
+				// Get the updated client
+				m.llmClient = m.llmManager.GetClient()
+			}
+
+			// Update MCP servers if available
+			if len(settings.MCPServers) > 0 {
+				m.mcpClient.UpdateServers(settings.MCPServers)
+				log.Debug("graph", "action", "Updated MCP servers for user", "user_id", userID, "server_count", len(settings.MCPServers))
+			} else {
+				// Fallback to default servers if user has no specific MCP configuration
+				m.mcpClient.UpdateServersFromConfig(m.config.MCP.DefaultServers)
+				log.Debug("graph", "action", "Using default MCP servers for user", "user_id", userID)
+			}
+		}
+	}
+
+	// Get available MCP tools
+	mcpTools := m.getAvailableMCPToolsList()
+
+	// Convert MCP tools to standard function tools
+	tools := types.ConvertMCPToolsToFunctionTools(mcpTools)
+
+	// Build conversation messages using standard format
+	messages := types.BuildConversationMessages(history, "You are a helpful QNG blockchain agent assistant.")
+
+	// Add user message
+	messages = append(messages, map[string]interface{}{
+		"role":    "user",
+		"content": userMessage,
+	})
+
+	// Call LLM with function calling support
+	response, err := m.llmClient.GetCompletionWithTools(ctx, messages, tools)
+	if err != nil {
+		return "", false, fmt.Errorf("LLM completion failed: %w", err)
+	}
+
+	// Check if response contains function calls
+	if response.ToolCalls != nil && len(response.ToolCalls) > 0 {
+		// Execute function calls
+		for _, toolCall := range response.ToolCalls {
+			result, err := m.executeFunctionCall(ctx, toolCall)
+			if err != nil {
+				log.Debug("graph", "action", "Function call execution failed", "tool", toolCall.Function.Name, "error", err)
+				// Continue with error result
+				result = map[string]interface{}{
+					"error": err.Error(),
+					"tool":  toolCall.Function.Name,
+				}
+			}
+
+			// Add tool result to conversation
+			toolMessage := types.ChatMessage{
+				Role:       "tool",
+				Content:    fmt.Sprintf("%v", result),
+				ToolCallID: toolCall.ID,
+				Name:       toolCall.Function.Name,
+			}
+			history = append(history, toolMessage)
+		}
+
+		// Get final response after tool execution
+		messages = types.BuildConversationMessages(history, "You are a helpful QNG blockchain agent assistant.")
+		finalResponse, err := m.llmClient.GetCompletion(ctx, []types.ChatMessage{
+			{Role: "user", Content: "Please provide a final response based on the tool execution results."},
+		})
+		if err != nil {
+			return "", false, fmt.Errorf("Final LLM completion failed: %w", err)
+		}
+
+		return finalResponse, true, nil
+	}
+
+	return response.Content, false, nil
+}
+
+// executeFunctionCall executes a function call using MCP client
+func (m *LLMGraphManager) executeFunctionCall(ctx context.Context, toolCall types.ToolCall) (map[string]interface{}, error) {
+	log.Debug("graph", "action", "Executing function call", "tool", toolCall.Function.Name, "args", toolCall.Function.Arguments)
+
+	// Call MCP tool
+	result, err := m.mcpClient.CallTool(ctx, toolCall.Function.Name, toolCall.Function.Arguments)
+	if err != nil {
+		return nil, fmt.Errorf("MCP tool call failed: %w", err)
+	}
+
+	return result, nil
+}
+
 // ProcessUserMessage processes a user message through the official QNG graph
 func (m *LLMGraphManager) ProcessUserMessage(ctx context.Context, userID, userMessage string, history []types.ChatMessage) (string, bool, error) {
 	// Update LLM client and MCP client with user-specific configuration if available
@@ -1424,67 +1523,17 @@ func (m *LLMGraphManager) responseGenerationNode(ctx context.Context, state []ll
 	prompt := fmt.Sprintf(`You are a helpful QNG blockchain agent assistant.
 
 User asked: "%s"
-
-Intent analysis determined: %s (confidence: %.2f)
+Intent: %s (confidence: %.2f)
 
 %s
 
-Please provide a clear, natural language response to the user. Guidelines:
-- Be helpful and informative
-- If there are tool results, explain them clearly  
-- If there are workflow steps, guide the user through them
-- For blockchain data, explain what it means
-- Use simple language that both technical and non-technical users can understand
-- If authentication is required, explain what the user needs to do next
-- If multiple RPC endpoints were queried, compare and explain the differences or similarities
-- For sub-workflow results, summarize the findings from multiple tasks clearly
-
-LANGUAGE CONSISTENCY REQUIREMENT:
-- CRITICAL: Analyze the user's question language (Chinese, English, etc.)
-- Respond in the SAME language that the user used in their question
-- If user asked in Chinese (中文), respond entirely in Chinese
-- If user asked in English, respond entirely in English
-- If user mixed languages, prioritize the primary language used
-- Keep technical terms consistent with the user's language preference
-- This language consistency rule overrides all other formatting preferences
-
-FORMATTING AND PRESENTATION GUIDELINES:
-- Use proper Markdown formatting for better readability
-- Create tables using Markdown syntax when comparing multiple data points
-- Use emojis and formatting to make the response engaging
-- Structure information with headers (##, ###) for organization
-- Use bullet points and numbered lists for clarity
-- Add visual separators (---) between sections
-- For comparisons, use side-by-side tables or clear comparisons
-- Highlight important values with **bold** or backtick code blocks
-
-Example of good table formatting:
-| Field | Node 1 Value | Node 2 Value | Status |
-|-------|-------------|-------------|---------|
-| StateRoot | 0x123... | 0x123... | ✅ Match |
-| Response Time | 36ms | 33ms | ✅ Both fast |
-
-Example of good section structure:
-## 🔍 **Analysis Results**
-### ✅ Summary
-### 📊 Detailed Comparison
-### 💡 What This Means
-
-CRITICAL DATA EXTRACTION INSTRUCTIONS:
-- The raw results may contain JSON-RPC responses like: {"jsonrpc":"2.0","id":1,"result":13077047}
-- Extract the actual values from "result" fields in JSON-RPC responses
-- If you see content arrays with text fields, parse the JSON inside the text
-- Present the extracted numbers in a user-friendly format with commas (e.g., 13,077,047)
-- Compare values across different RPC endpoints using tables when appropriate
-- Do NOT invent numbers - extract them from the provided raw data
-- If you cannot extract clear numbers, say so and show the raw data
-
-For blockchain data presentation:
-- Use tables for comparing multiple nodes/endpoints
-- Add visual indicators (✅❌🔍💡) for status and emphasis
-- Explain technical terms in simple language
-- Provide context about what the data means
-- Include response times and performance metrics when available`, userMessage, intentResult.Intent, intentResult.Confidence, dataContext)
+Provide a clear, helpful response:
+- Explain tool results clearly
+- Use the same language as the user
+- Use Markdown formatting for better readability
+- Create tables for comparisons
+- Extract actual values from JSON-RPC responses
+- Highlight important information`, userMessage, intentResult.Intent, intentResult.Confidence, dataContext)
 
 	chatMessages := []types.ChatMessage{
 		{Role: "user", Content: prompt},
@@ -1548,78 +1597,32 @@ func (m *LLMGraphManager) buildIntentAnalysisPrompt(userMessage string) string {
 	mcpTools := m.getAvailableMCPTools()
 	web3Workflows := m.getAvailableWorkflows()
 
-	prompt := fmt.Sprintf(`Analyze the user's intent in the following message:
-"%s"
+	prompt := fmt.Sprintf(`You are a helpful QNG blockchain agent assistant.
 
-You are a QNG blockchain agent. Available MCP Tools:
-%s
+User request: "%s"
 
-Available Web3 Workflows:
-%s
+Available MCP Tools: %s
+Available Web3 Workflows: %s
 
-ANALYSIS PROCESS:
-1. TOOL IDENTIFICATION: First, identify ALL tools that need to be executed to fulfill the user's request
-2. DEPENDENCY ANALYSIS: Then, analyze which tools depend on outputs from other tools  
-3. PARAMETER EXTRACTION: Extract all parameters from user message and identify which ones are static vs dynamic (from previous tool outputs)
-4. WORKFLOW CONSTRUCTION: Build the execution plan with proper sequencing
+Analyze the user's intent and determine the appropriate execution strategy:
 
-DECISION LOGIC:
-- Single tool needed → use "mcp_tool"
-- Multiple tools needed → use "sub_workflow"
-- Pre-defined workflow exists → use "web3_workflow"
-- General conversation → use "general_conversation"
+1. Single tool needed → "mcp_tool"
+2. Multiple tools needed → "sub_workflow" 
+3. Pre-defined workflow exists → "web3_workflow"
+4. General conversation → "general_conversation"
 
-WORKFLOW ANALYSIS STEPS:
-Step 1: List all required tools
-Step 2: Identify parameter dependencies between tools
-Step 3: Determine execution order based on dependencies
-Step 4: Extract static parameters from user input
-Step 5: Define dynamic parameter mappings between tools
-
-EXAMPLES (as reference, don't hardcode these patterns):
-
-Example 1: "查询 http://rpc1/ 最新区块数"
-- Tools needed: [get_block_count]
-- Dependencies: none
-- Result: mcp_tool
-
-Example 2: "查询 http://rpc1/ 与 http://rpc2/ 最新区块数" 
-- Tools needed: [get_block_count, get_block_count]
-- Dependencies: none (parallel execution)
-- Result: sub_workflow with parallel tasks
-
-Example 3: "查询 http://rpc1/ 与 http://rpc2/ 对应最新区块数对应的stateroot"
-- Tools needed: [get_block_count, get_block_count, get_block_stateroot, get_block_stateroot]
-- Dependencies: stateroot tools depend on block_count results
-- Parameter flow: block_count_result → stateroot_order_parameter
-- Result: sub_workflow with sequential dependencies
-
-YOUR TASK:
-Analyze the user request following these steps:
-1. Identify what tools are needed to complete the request
-2. Determine if any tool needs output from another tool as input
-3. Extract static parameters from user message
-4. Design parameter flow between dependent tools
-5. Choose appropriate intent based on complexity
+Extract parameters from user message and identify tool dependencies.
 
 Respond with JSON:
 {
   "intent": "mcp_tool|sub_workflow|web3_workflow|general_conversation",
   "confidence": 0.0-1.0,
-  "analysis": {
-    "tools_needed": ["list", "of", "required", "tools"],
-    "dependencies": [
-      {"tool": "tool_name", "depends_on": ["previous_tool"], "parameter_mapping": {"output_field": "input_parameter"}}
-    ],
-    "static_parameters": {"extracted": "from_user_message"},
-    "execution_strategy": "parallel|sequential|mixed"
-  },
   "mcp_tool": "tool_name_if_single_tool",
-  "parameters": {"for": "single_tool_execution"},
+  "parameters": {"rpc_url": "extracted_url", "other_param": "value"},
   "workflow_name": "name_if_predefined_workflow",
   "sub_workflow": {
-    "id": "generated_workflow_id", 
-    "name": "descriptive_name_based_on_user_request",
+    "id": "generated_workflow_id",
+    "name": "descriptive_name",
     "description": "what_this_accomplishes",
     "execution_mode": "sequential|parallel|mixed",
     "aggregation_strategy": "compare|summarize|merge|raw",
@@ -1627,26 +1630,32 @@ Respond with JSON:
       {
         "id": "task_id",
         "tool_name": "identified_tool",
-        "parameters": {"static_param": "value", "dynamic_param": "{{previous_task_output}}"},
-        "depends_on": ["task_ids_this_depends_on"],
-        "output_mapping": {"tool_output_field": "variable_name_for_next_task"}
+        "parameters": {"rpc_url": "http://example.com", "block_order": "{{previous_task_output}}"},
+        "depends_on": ["task_ids_this_depends_on"]
       }
     ]
   },
-  "rpc_urls": ["extracted_from_message"],
-  "analysis_request": "what_analysis_user_wants"
-}
-
-CRITICAL INSTRUCTIONS:
-- DON'T hardcode workflow patterns - analyze each request dynamically
-- ALWAYS identify the minimal set of tools needed
-- CAREFULLY trace parameter dependencies between tools
-- Use {{variable_name}} for parameters that come from previous tool outputs
-- Design tasks based on actual tool requirements, not predefined templates
-- Consider user's intent for result analysis (comparison, summarization, etc.)`, userMessage, mcpTools, web3Workflows)
+  "rpc_urls": ["extracted_from_message"]
+}`, userMessage, mcpTools, web3Workflows)
 
 	// log.Debug("graph", "action", "Intent analysis prompt", "%s", prompt)
 	return prompt
+}
+
+// getAvailableMCPToolsList returns a list of available MCP tools
+func (m *LLMGraphManager) getAvailableMCPToolsList() []string {
+	tools := []string{}
+
+	// Add tools from configuration
+	for _, server := range m.config.MCP.DefaultServers {
+		if server.Enabled {
+			// Extract tool names from server configuration
+			// This is a simplified version - in reality, you'd query the server for available tools
+			tools = append(tools, "qng_get_block_count", "qng_get_block_by_order", "qng_get_stateroot")
+		}
+	}
+
+	return tools
 }
 
 // getAvailableMCPTools returns a formatted string of available MCP tools

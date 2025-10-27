@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -8,9 +9,39 @@ import (
 type ChatMessage struct {
 	ID        string    `json:"id" db:"id"`
 	SessionID string    `json:"session_id" db:"session_id"`
-	Role      string    `json:"role" db:"role"` // "user" or "assistant"
+	Role      string    `json:"role" db:"role"` // "user", "assistant", "system", "tool"
 	Content   string    `json:"content" db:"content"`
 	Timestamp time.Time `json:"timestamp" db:"timestamp"`
+	// Function call support
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Name       string     `json:"name,omitempty"` // For tool messages
+}
+
+// ToolCall represents a function call in a message
+type ToolCall struct {
+	ID       string       `json:"id"`
+	Type     string       `json:"type"` // "function"
+	Function FunctionCall `json:"function"`
+}
+
+// FunctionCall represents the function being called
+type FunctionCall struct {
+	Name      string                 `json:"name"`
+	Arguments map[string]interface{} `json:"arguments"`
+}
+
+// Tool represents a function tool definition
+type Tool struct {
+	Type     string       `json:"type"` // "function"
+	Function ToolFunction `json:"function"`
+}
+
+// ToolFunction represents the function definition
+type ToolFunction struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"`
 }
 
 // ChatSession represents a chat session
@@ -33,11 +64,11 @@ type MCPServerConfig struct {
 type LLMProviderType string
 
 const (
-	ProviderTypeOpenAI    LLMProviderType = "openai"
+	ProviderTypeOpenAI     LLMProviderType = "openai"
 	ProviderTypeOpenRouter LLMProviderType = "openrouter"
-	ProviderTypeGroq      LLMProviderType = "groq"
-	ProviderTypeAnthropic LLMProviderType = "anthropic"
-	ProviderTypeCustom    LLMProviderType = "custom"
+	ProviderTypeGroq       LLMProviderType = "groq"
+	ProviderTypeAnthropic  LLMProviderType = "anthropic"
+	ProviderTypeCustom     LLMProviderType = "custom"
 )
 
 // LLMProviderConfig represents LLM provider configuration
@@ -49,8 +80,8 @@ type LLMProviderConfig struct {
 	ModelName string          `json:"model_name"`
 	Timeout   int             `json:"timeout,omitempty"` // Request timeout in seconds
 	// OpenRouter specific fields
-	AppName    string `json:"app_name,omitempty"`    // For X-Title header
-	AppURL     string `json:"app_url,omitempty"`     // For HTTP-Referer header
+	AppName string `json:"app_name,omitempty"` // For X-Title header
+	AppURL  string `json:"app_url,omitempty"`  // For HTTP-Referer header
 }
 
 // AppSettings represents application settings
@@ -90,11 +121,11 @@ type StreamChunk struct {
 
 // WorkflowNode represents a node in a workflow graph
 type WorkflowNode struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Name        string                 `json:"name"`
-	Config      map[string]interface{} `json:"config,omitempty"`
-	Web3Config  map[string]interface{} `json:"web3_config,omitempty"`
+	ID         string                 `json:"id"`
+	Type       string                 `json:"type"`
+	Name       string                 `json:"name"`
+	Config     map[string]interface{} `json:"config,omitempty"`
+	Web3Config map[string]interface{} `json:"web3_config,omitempty"`
 }
 
 // WorkflowEdge represents an edge in a workflow graph
@@ -134,24 +165,24 @@ type IntentAnalysisResult struct {
 	WorkflowName string                 `json:"workflow_name,omitempty"`
 	RequiresAuth bool                   `json:"requires_auth"`
 	// New fields for sub-workflow support
-	SubWorkflow  *SubWorkflow           `json:"sub_workflow,omitempty"`
-	MultiTask    bool                   `json:"multi_task,omitempty"`
+	SubWorkflow *SubWorkflow `json:"sub_workflow,omitempty"`
+	MultiTask   bool         `json:"multi_task,omitempty"`
 }
 
 // SubWorkflow represents a dynamically generated sub-workflow
 type SubWorkflow struct {
-	ID          string         `json:"id"`
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Tasks       []TaskExecution `json:"tasks"`
-	ExecutionMode string        `json:"execution_mode"` // "sequential" or "parallel"
-	AggregationStrategy string `json:"aggregation_strategy"` // "compare", "summarize", "merge"
+	ID                  string          `json:"id"`
+	Name                string          `json:"name"`
+	Description         string          `json:"description"`
+	Tasks               []TaskExecution `json:"tasks"`
+	ExecutionMode       string          `json:"execution_mode"`       // "sequential" or "parallel"
+	AggregationStrategy string          `json:"aggregation_strategy"` // "compare", "summarize", "merge"
 }
 
 // TaskExecution represents a single task to be executed
 type TaskExecution struct {
 	ID          string                 `json:"id"`
-	TaskType    string                 `json:"task_type"`    // "mcp_tool", "web3_workflow", etc.
+	TaskType    string                 `json:"task_type"` // "mcp_tool", "web3_workflow", etc.
 	ToolName    string                 `json:"tool_name,omitempty"`
 	Parameters  map[string]interface{} `json:"parameters"`
 	RPC         string                 `json:"rpc,omitempty"`
@@ -162,21 +193,21 @@ type TaskExecution struct {
 
 // TaskResult represents the result of a task execution
 type TaskResult struct {
-	TaskID      string                 `json:"task_id"`
-	Success     bool                   `json:"success"`
-	Result      map[string]interface{} `json:"result,omitempty"`
-	Error       string                 `json:"error,omitempty"`
-	ExecutionTime time.Duration        `json:"execution_time"`
-	RPC         string                 `json:"rpc,omitempty"`
+	TaskID        string                 `json:"task_id"`
+	Success       bool                   `json:"success"`
+	Result        map[string]interface{} `json:"result,omitempty"`
+	Error         string                 `json:"error,omitempty"`
+	ExecutionTime time.Duration          `json:"execution_time"`
+	RPC           string                 `json:"rpc,omitempty"`
 }
 
 // SubWorkflowResult represents the result of a sub-workflow execution
 type SubWorkflowResult struct {
-	WorkflowID   string       `json:"workflow_id"`
-	Success      bool         `json:"success"`
-	TaskResults  []TaskResult `json:"task_results"`
-	Summary      string       `json:"summary,omitempty"`
-	TotalTime    time.Duration `json:"total_time"`
+	WorkflowID  string        `json:"workflow_id"`
+	Success     bool          `json:"success"`
+	TaskResults []TaskResult  `json:"task_results"`
+	Summary     string        `json:"summary,omitempty"`
+	TotalTime   time.Duration `json:"total_time"`
 }
 
 // 工作流可视化相关类型
@@ -191,12 +222,12 @@ const (
 
 // WorkflowVisualizationNode represents a node in the workflow visualization
 type WorkflowVisualizationNode struct {
-	ID     string     `json:"id"`
-	Label  string     `json:"label"`
-	Type   string     `json:"type"`
-	Status NodeStatus `json:"status"`
+	ID     string      `json:"id"`
+	Label  string      `json:"label"`
+	Type   string      `json:"type"`
+	Status NodeStatus  `json:"status"`
 	Data   interface{} `json:"data,omitempty"`
-	Error  string     `json:"error,omitempty"`
+	Error  string      `json:"error,omitempty"`
 }
 
 // WorkflowVisualizationEdge represents an edge in the workflow visualization
@@ -219,17 +250,17 @@ type WorkflowInitiateRequest struct {
 
 // WorkflowInitiateResponse represents the response when initiating a workflow
 type WorkflowInitiateResponse struct {
-	WorkflowID string                      `json:"workflowId"`
-	Graph      WorkflowVisualizationGraph  `json:"graph"`
+	WorkflowID string                     `json:"workflowId"`
+	Graph      WorkflowVisualizationGraph `json:"graph"`
 }
 
 // WorkflowStatusUpdate represents a node status update
 type WorkflowStatusUpdate struct {
-	WorkflowID string     `json:"workflowId"`
-	NodeID     string     `json:"nodeId"`
-	Status     NodeStatus `json:"status"`
+	WorkflowID string      `json:"workflowId"`
+	NodeID     string      `json:"nodeId"`
+	Status     NodeStatus  `json:"status"`
 	Data       interface{} `json:"data,omitempty"`
-	Error      string     `json:"error,omitempty"`
+	Error      string      `json:"error,omitempty"`
 }
 
 // WorkflowComplete represents workflow completion
@@ -238,4 +269,76 @@ type WorkflowComplete struct {
 	Success    bool   `json:"success"`
 	Summary    string `json:"summary,omitempty"`
 	TotalTime  int64  `json:"totalTime,omitempty"` // in milliseconds
+}
+
+// BuildConversationMessages builds standard conversation messages for LLM
+func BuildConversationMessages(history []ChatMessage, systemPrompt string) []map[string]interface{} {
+	messages := []map[string]interface{}{}
+
+	// Add system message
+	if systemPrompt != "" {
+		messages = append(messages, map[string]interface{}{
+			"role":    "system",
+			"content": systemPrompt,
+		})
+	}
+
+	// Add conversation history
+	for _, msg := range history {
+		message := map[string]interface{}{
+			"role":    msg.Role,
+			"content": msg.Content,
+		}
+
+		// Add tool calls if present
+		if len(msg.ToolCalls) > 0 {
+			message["tool_calls"] = msg.ToolCalls
+			// Remove content for assistant messages with tool calls
+			if msg.Role == "assistant" {
+				message["content"] = nil
+			}
+		}
+
+		// Add tool call ID for tool messages
+		if msg.ToolCallID != "" {
+			message["tool_call_id"] = msg.ToolCallID
+		}
+
+		// Add name for tool messages
+		if msg.Name != "" {
+			message["name"] = msg.Name
+		}
+
+		messages = append(messages, message)
+	}
+
+	return messages
+}
+
+// ConvertMCPToolsToFunctionTools converts MCP tools to standard function tools
+func ConvertMCPToolsToFunctionTools(mcpTools []string) []Tool {
+	tools := []Tool{}
+
+	for _, toolName := range mcpTools {
+		tool := Tool{
+			Type: "function",
+			Function: ToolFunction{
+				Name:        toolName,
+				Description: fmt.Sprintf("QNG blockchain %s tool", toolName),
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"rpc_url": map[string]interface{}{
+							"type":        "string",
+							"description": "RPC endpoint URL",
+						},
+					},
+					"required": []string{"rpc_url"},
+				},
+			},
+		}
+		tools = append(tools, tool)
+	}
+
+	return tools
 }

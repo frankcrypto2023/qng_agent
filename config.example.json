@@ -7,8 +7,8 @@
       "http://127.0.0.1:3000",
       "https://yourdomain.com"
     ],
-    "read_timeout": 30,
-    "write_timeout": 30,
+    "read_timeout": 600,
+    "write_timeout": 600,
     "max_request_size": 1048576
   },
   "database": {
@@ -20,28 +20,21 @@
     "default_model": "gpt-4",
     "max_tokens": 2048,
     "temperature": 0.7,
-    "timeout": 120
+    "timeout": 300,
+    "url": "https://api.openai.com/v1",
+    "token": "sk-your-openai-api-key-here"
   },
   "mcp": {
     "default_servers": [
       {
         "name": "QNG Tools",
-        "url": "http://localhost:8080/sse",
+        "url": "http://localhost:18131/mcp/sse",
         "enabled": true
-      },
-      {
-        "name": "File System Tools",
-        "url": "http://localhost:8081/mcp/filesystem",
-        "enabled": false
-      },
-      {
-        "name": "Database Tools",
-        "url": "http://localhost:8082/mcp/database",
-        "enabled": false
       }
-    ]
+    ],
+    "timeout": 300
   },
   "log": {
-    "level": "info"
+    "level": "debug"
   }
 }
